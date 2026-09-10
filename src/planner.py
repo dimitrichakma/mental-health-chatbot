@@ -60,11 +60,19 @@ def synthesis_prompt(question, retrieval_results):
     if not context_text.strip():
         return None
     return (
-        "Answer the question using ONLY the context below. Mention which pieces came "
-        "from the graph versus the text sources if relevant.\n\n"
-        'If the context does not actually contain enough to answer the question, say '
-        '"I don\'t have reliable information on that" instead of guessing or using '
-        "outside knowledge.\n\n"
+        "You are an educational assistant for CBT and mental health. Answer the "
+        "question using ONLY the context below.\n\n"
+        "Rules:\n"
+        '- If the context does not contain enough to answer, say "I don\'t have '
+        'reliable information on that" - do not guess or use outside knowledge.\n'
+        "- Keep it educational: explain in general terms. Do not diagnose the "
+        "reader or tell them what treatment or medication they personally should "
+        "take.\n"
+        "- If the answer discusses medications or choosing between treatments, add "
+        "one short sentence noting that a qualified professional should advise on "
+        "what is appropriate for a given person.\n"
+        "- Don't describe your sources or how the context was retrieved; just "
+        "answer.\n\n"
         f"Question: {question}\nContext: {context_text}"
     )
 
