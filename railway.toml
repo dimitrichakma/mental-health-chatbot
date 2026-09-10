@@ -1,5 +1,16 @@
 [build]
 builder = "dockerfile"
+# only rebuild the backend when something it actually ships changes
+# (frontend-only / docs-only pushes are skipped)
+watchPatterns = [
+  "src/**",
+  "backend/**",
+  "Dockerfile",
+  ".dockerignore",
+  "pyproject.toml",
+  "uv.lock",
+  "railway.toml",
+]
 
 [deploy]
 # the app connects to Neo4j + Pinecone and runs checkpointer.setup() at import,
