@@ -162,5 +162,28 @@ class UsageTracker(BaseCallbackHandler):
             return "\n".join(lines)
 
 
+def friendly_api_error(exc):
+    """One clean line for an Anthropic API failure, or None if `exc` is something
+    else. Lets the eval scripts exit with a readable message instead of dumping
+    a langchain/anthropic traceback (the usual cause is a spent credit balance).
+    """
+    try:
+        import anthropic
+    except ImportError:
+        return None
+    if not isinstance(exc, anthropic.APIError):
+        return None
+    msg = str(getattr(exc, "message", "") or exc)
+    if "credit balance is too low" in msg:
+        return ("Anthropic API: out of credits. Top up at "
+                "console.anthropic.com -> Plans & Billing, then re-run. "
+                "Nothing was scored, so nothing was charged for this run.")
+    if "rate_limit" in msg.lower() or " 429" in msg:
+        return f"Anthropic API rate limited - wait a bit and re-run. ({msg})"
+    if "overloaded" in msg.lower() or " 529" in msg:
+        return f"Anthropic API overloaded - re-run shortly. ({msg})"
+    return f"Anthropic API error: {msg}"
+
+
 # process-wide guard for eval runs (hard ceiling); attached to the judge models
 EVAL_USAGE = UsageTracker(max_usd=float(os.getenv("EVAL_MAX_USD", DEFAULT_MAX_USD)))

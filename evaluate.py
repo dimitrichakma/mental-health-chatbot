@@ -34,10 +34,17 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+import anthropic
+
 from src import router
-from src.usage import EVAL_USAGE as COST_TRACKER, BudgetExceeded
+from src.usage import EVAL_USAGE as COST_TRACKER, BudgetExceeded, friendly_api_error
 from src.llm import judge_llm
 from src.planner import run_pipeline
+
+# things that will hit every remaining item, so stop the run instead of logging
+# 39 identical failures: the eval spend guard, and any Anthropic API error
+# (spent balance, rate limit, outage).
+_FATAL = (BudgetExceeded, anthropic.APIError)
 
 GOLDEN_SET_PATH = Path(__file__).resolve().parent / "eval" / "golden_eval_set.json"
 
@@ -117,7 +124,7 @@ def judge_prose(question, reference, actual):
             "Judge only whether the key facts match, not wording or length.\n\n"
             f"Question: {question}\n\nReference answer: {reference}\n\nChatbot answer: {actual}"
         ).verdict
-    except BudgetExceeded:
+    except _FATAL:
         raise
     except Exception as e:
         print(f"   judge failed: {e}")
@@ -136,7 +143,7 @@ def judge_graph(question, valid_answers, actual):
             "'incorrect' if it is wrong, declines to answer, or says it lacks information.\n\n"
             f"Question: {question}\n\nChatbot answer: {actual}"
         ).verdict
-    except BudgetExceeded:
+    except _FATAL:
         raise
     except Exception as e:
         print(f"   judge failed: {e}")
@@ -150,7 +157,7 @@ def judge_abstain(actual):
             "or can only answer from its own sources - rather than giving a substantive answer?\n\n"
             f"Answer: {actual}"
         ).declines
-    except BudgetExceeded:
+    except _FATAL:
         raise
     except Exception as e:
         print(f"   judge failed: {e}")
@@ -182,7 +189,12 @@ def evaluate_item(item, graph):
     t0 = time.perf_counter()
     try:
         out = run_pipeline(item["question"], chat_history=item.get("chat_history"))
+    except _FATAL:
+        raise
     except Exception as e:
+        import anthropic
+        if isinstance(e, anthropic.APIError):
+            raise  # a spent balance / rate limit hits every item - stop cleanly
         rec["error"] = str(e)
         rec["pass"] = False
         return rec
@@ -298,8 +310,9 @@ def main():
         print(f"[{i}/{len(golden_set)}] {item['id']}")
         try:
             rec = evaluate_item(item, graph)
-        except BudgetExceeded as e:
-            print(f"\n!! {e}\n!! stopping - {len(results)}/{len(golden_set)} items scored")
+        except _FATAL as e:
+            reason = friendly_api_error(e) or str(e)
+            print(f"\n!! {reason}\n!! stopping - {len(results)}/{len(golden_set)} items scored")
             stopped_early = True
             break
         flag = "ok " if rec.get("pass") else "FAIL"

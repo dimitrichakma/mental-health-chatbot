@@ -214,4 +214,13 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import anthropic
+
+    from src.usage import friendly_api_error
+
+    try:
+        main()
+    except BudgetExceeded as e:
+        raise SystemExit(f"\n!! {e}")
+    except anthropic.APIError as e:
+        raise SystemExit(f"\n!! {friendly_api_error(e)}")
