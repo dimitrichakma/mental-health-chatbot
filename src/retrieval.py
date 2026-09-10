@@ -147,3 +147,14 @@ def graph_rag_retrieve(entity_name, limit=25):
         params={"entity_name": entity_name},
     )
     return _diversify(last, entity_name, limit)
+
+
+def retrieve_both(question, entity):
+    """naive (vector) + graph retrieval concurrently - two independent network
+    round-trips that were being done back-to-back on the "both" path."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        vec = pool.submit(naive_rag_retrieve, question)
+        gr = pool.submit(graph_rag_retrieve, entity)
+        return vec.result() + gr.result()

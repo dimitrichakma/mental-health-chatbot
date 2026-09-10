@@ -1,5 +1,6 @@
 import hashlib
 import os
+import threading
 
 import voyageai
 from dotenv import load_dotenv
@@ -80,10 +81,18 @@ def web_search_and_ingest(question, max_results=3):
 
     chunk_texts = [c["text"] for c in new_chunks]
 
-    # step 4 - best-effort: store for future queries, but don't fail the
-    # request if embedding or upsert has a hiccup; we already have the text
+    # step 4 - store for future queries, in the background. this turn's answer
+    # only needs chunk_texts (already in hand); the embed + upsert is best-effort
+    # and there's no reason to make the request wait on it.
+    threading.Thread(target=_ingest, args=(new_chunks,), daemon=True).start()
+
+    return chunk_texts
+
+
+def _ingest(new_chunks):
     try:
-        embed_results = vo.embed(chunk_texts, model="voyage-3.5", input_type="document")
+        texts = [c["text"] for c in new_chunks]
+        embed_results = vo.embed(texts, model="voyage-3.5", input_type="document")
         vectors = [
             {
                 "id": _stable_id(chunk["text"]),
@@ -100,6 +109,4 @@ def web_search_and_ingest(question, max_results=3):
         ]
         index.upsert(vectors=vectors, namespace="default")
     except Exception as e:
-        print(f"web result ingest failed (answer still uses the text): {e}")
-
-    return chunk_texts
+        print(f"web result ingest failed (answer still used the text): {e}")

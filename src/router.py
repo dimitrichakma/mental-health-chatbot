@@ -3,7 +3,7 @@ from typing import Optional, Literal
 
 from pydantic import BaseModel, Field
 
-from .retrieval import naive_rag_retrieve, graph_rag_retrieve
+from .retrieval import naive_rag_retrieve, graph_rag_retrieve, retrieve_both
 from .grading import grade_relevance
 from .llm import fast_llm
 from .web_search_fallback import web_search_and_ingest
@@ -48,14 +48,22 @@ def classify_and_extract(question):
         return "naive_rag", None
 
 def route_question(question):
-    path, entity = classify_and_extract(question)
+    # classify and do the vector lookup at the same time: naive_rag_retrieve is a
+    # cheap read (~0.5s) and every path except a clean graph_rag hit ends up
+    # needing it, so speculating it in parallel with the classifier call saves a
+    # serial hop in the common case.
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        f_class = pool.submit(classify_and_extract, question)
+        f_vec = pool.submit(naive_rag_retrieve, question)
+        path, entity = f_class.result()
+        vector_context = f_vec.result()
 
     if path == "graph_rag" and entity:
         context = graph_rag_retrieve(entity)
     elif path == "both" and entity:
-        context = naive_rag_retrieve(question) + graph_rag_retrieve(entity)
+        context = vector_context + graph_rag_retrieve(entity)
     else:
-        context = naive_rag_retrieve(question)
+        context = vector_context
         path = "naive_rag"  # fell back here since no usable entity came back
 
     return {"path": path, "context": context, "entity": entity}
@@ -101,7 +109,7 @@ def route_with_correction(question):
     if result["entity"] is None:
         combined = naive_rag_retrieve(question)
     else:
-        combined = naive_rag_retrieve(question) + graph_rag_retrieve(result["entity"])
+        combined = retrieve_both(question, result["entity"])
     return {"path": "both", "context": combined, "entity": result["entity"], "corrected": True}
 
 
