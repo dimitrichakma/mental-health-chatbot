@@ -1,4 +1,5 @@
 import logging
+import os
 from contextlib import asynccontextmanager
 from uuid import uuid4
 
@@ -10,8 +11,13 @@ from src.agent import run_agent, pool
 
 logger = logging.getLogger("backend")
 
-# allowed browser origins for the Streamlit frontend; add the deployed URL here
-ALLOWED_ORIGINS = ["http://localhost:8501"]
+# allowed browser origins for the Streamlit frontend. defaults to local dev;
+# in deploy set ALLOWED_ORIGINS to a comma-separated list of frontend URLs.
+ALLOWED_ORIGINS = [
+    o.strip()
+    for o in os.getenv("ALLOWED_ORIGINS", "http://localhost:8501").split(",")
+    if o.strip()
+]
 
 
 @asynccontextmanager

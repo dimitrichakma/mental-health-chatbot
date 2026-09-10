@@ -46,6 +46,10 @@ CALL {
          coalesce($aliases[toLower(s_raw)], s_raw) AS s_name,
          coalesce($aliases[toLower(t_raw)], t_raw) AS t_name
     WHERE s_name <> t_name AND s_name <> '' AND t_name <> ''
+      // drop nodes with a lone unbalanced paren - these are comma-split
+      // fragments from kaggle_disease_symptoms, e.g. "Medications (antidepressants"
+      AND NOT ((s_name CONTAINS '(') XOR (s_name CONTAINS ')'))
+      AND NOT ((t_name CONTAINS '(') XOR (t_name CONTAINS ')'))
     MERGE (a:Entity {name: s_name})
     MERGE (b:Entity {name: t_name})
     MERGE (a)-[r:RELATION {type: row.relation, origin: row.origin}]->(b)
@@ -68,17 +72,11 @@ def main():
     apoc = graph.query("RETURN apoc.version() AS version")
     print("APOC version:", apoc[0]["version"])
 
-    # wipe first, so this is a clean reload rather than an additive MERGE
+    # wipe first, so this is a clean reload rather than an additive MERGE.
+    # the graph is small (~2k nodes) so a single DETACH DELETE is fine and
+    # avoids the deprecated apoc.periodic.iterate.
     print("Clearing existing graph...")
-    graph.query(
-        """
-        CALL apoc.periodic.iterate(
-            'MATCH (n) RETURN n',
-            'DETACH DELETE n',
-            {batchSize: 1000}
-        )
-        """
-    )
+    graph.query("MATCH (n) CALL (n) { DETACH DELETE n } IN TRANSACTIONS OF 5000 ROWS")
     graph.query("CALL apoc.schema.assert({}, {})")  # drop stale indexes/constraints
     print("Cleared.")
 
