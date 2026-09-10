@@ -116,6 +116,7 @@ def _log_conversation(thread_id, question, answer, paths_used, is_crisis, latenc
 class ChatRequest(BaseModel):
     question: str = Field(min_length=1, max_length=4000)
     thread_id: str | None = None
+    country: str | None = Field(default=None, max_length=2)  # 2-letter code for crisis resources
 
 
 class Feedback(BaseModel):
@@ -149,7 +150,9 @@ def chat(request: Request, body: ChatRequest):
     tracker = UsageTracker()  # no ceiling - meter only
     t0 = time.perf_counter()
     try:
-        output = run_agent(body.question, thread_id=thread_id, callbacks=[tracker])
+        output = run_agent(
+            body.question, thread_id=thread_id, country=body.country, callbacks=[tracker]
+        )
     except Exception:
         logger.exception("run_agent failed")
         raise HTTPException(503, "The assistant is temporarily unavailable. Please try again.")
@@ -162,16 +165,17 @@ def chat(request: Request, body: ChatRequest):
         latency_ms, snap["cost_usd"], snap["calls"], spent + snap["cost_usd"], limit,
     )
 
+    kind = output.get("kind", "answer")           # "crisis" | "off_topic" | "answer"
     paths_used = sorted({r["path"] for r in output["results"]}) if output["results"] else []
-    is_crisis = not output["results"]              # safety gate returns no retrieval results
     log_id = _log_conversation(
-        thread_id, body.question, output["answer"], paths_used, is_crisis,
+        thread_id, body.question, output["answer"], paths_used, kind == "crisis",
         latency_ms, snap["cost_usd"],
     )
 
     return {
         "answer": output["answer"],
         "paths_used": paths_used,
+        "kind": kind,
         "thread_id": thread_id,
         "log_id": log_id,
     }

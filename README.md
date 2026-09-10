@@ -18,8 +18,9 @@ that vets, chunks, and ingests new sources on the fly.
 ```
 question
   │
-  ├─ safety gate ─────────────────────► LLM crisis classifier; returns a crisis
-  │                                     response and stops if risk is high
+  ├─ front-door gate ─────────────────► one Haiku call: crisis risk + on-topic?
+  │      • high risk  → localized crisis helplines (country from the UI), stop
+  │      • off-topic  → polite "I only cover mental health / CBT" decline, stop
   ▼
 condense ──► rewrite into a standalone question using chat history
   ▼

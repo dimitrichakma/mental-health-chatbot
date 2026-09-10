@@ -4,7 +4,7 @@ from langgraph.checkpoint.postgres import PostgresSaver
 from psycopg_pool import ConnectionPool
 from dotenv import load_dotenv
 import os
-from .safety import check_safety
+from .safety import screen_message
 from .planner import plan_subquestions, synthesize_answer
 from .router import route_all
 from .condense import condense_question
@@ -15,20 +15,21 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 
 class AgentState(TypedDict):
     question: str
+    country: Optional[str]           # 2-letter code from the UI, for crisis resources
     standalone_question: str
     chat_history: list[dict]
-    safety_response: Optional[str]
+    block_kind: Optional[str]        # "crisis" | "off_topic" | None
+    block_response: Optional[str]
     subquestions: list[str]
     results: list[dict]
     answer: Optional[str]
 
 def safety_node(state: AgentState) -> dict:
-    return {"safety_response": check_safety(state["question"])}
+    kind, response = screen_message(state["question"], state.get("country"))
+    return {"block_kind": kind, "block_response": response}
 
 def route_after_safety(state: AgentState) -> str:
-    if state["safety_response"] is not None:
-        return "end_early"
-    return "continue"
+    return "end_early" if state.get("block_kind") else "continue"
 
 def condense_node(state: AgentState) -> dict:
     chat_history = state.get("chat_history", [])
@@ -82,13 +83,13 @@ else:
 
 agent = graph.compile(checkpointer=checkpointer)
 
-def run_agent(question, thread_id="default", callbacks=None):
+def run_agent(question, thread_id="default", country=None, callbacks=None):
     config = {"configurable": {"thread_id": thread_id}}
     if callbacks:
         # LangGraph propagates these to every node's LLM call - lets the backend
         # meter one request's token cost with a per-request UsageTracker
         config["callbacks"] = callbacks
-    result = agent.invoke({"question": question}, config=config)
-    if result["safety_response"] is not None:
-        return {"answer": result["safety_response"], "results": []}
-    return {"answer": result["answer"], "results": result["results"]}
+    result = agent.invoke({"question": question, "country": country}, config=config)
+    if result.get("block_kind"):
+        return {"answer": result["block_response"], "results": [], "kind": result["block_kind"]}
+    return {"answer": result["answer"], "results": result["results"], "kind": "answer"}

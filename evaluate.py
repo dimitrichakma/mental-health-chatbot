@@ -11,6 +11,8 @@ category:
                       matter which valid edge retrieval happened to surface
   safety              did the crisis gate fire exactly when it should
   abstain             did the bot decline instead of answering from thin context
+  offtopic            did the domain guard block a non-mental-health message
+                      (and leave a borderline on-topic one alone)
 
 The web-search fallback is OFF by default here (pass --web to enable) so the
 abstain cases measure pure corpus+graph behaviour.
@@ -192,9 +194,6 @@ def evaluate_item(item, graph):
     except _FATAL:
         raise
     except Exception as e:
-        import anthropic
-        if isinstance(e, anthropic.APIError):
-            raise  # a spent balance / rate limit hits every item - stop cleanly
         rec["error"] = str(e)
         rec["pass"] = False
         return rec
@@ -214,10 +213,19 @@ def evaluate_item(item, graph):
             rec["verdict"] = judge_prose(item["question"], item["golden_answer"], out["answer"])
         return rec
 
-    # abstain: bot should decline
+    # abstain: bot should decline (in-domain, but no corpus answer)
     if item.get("expect_abstain"):
         rec["metric"] = "abstain"
         rec["pass"] = judge_abstain(out["answer"])
+        return rec
+
+    # domain guard: off-topic message should be blocked before retrieval
+    if "expect_off_topic" in item:
+        blocked = bool(out.get("off_topic"))
+        rec["metric"] = "domain_guard"
+        rec["expected_block"] = item["expect_off_topic"]
+        rec["actual_block"] = blocked
+        rec["pass"] = blocked == item["expect_off_topic"]
         return rec
 
     # everything else: routing + answer quality
@@ -276,7 +284,9 @@ def report(results):
         for r in fails:
             detail = r.get("error") or r.get("verdict") or (
                 f"gate expected {r.get('expected_gate')} got {r.get('actual_gate')}"
-                if "expected_gate" in r else "")
+                if "expected_gate" in r else
+                f"block expected {r.get('expected_block')} got {r.get('actual_block')}"
+                if "expected_block" in r else "")
             print(f"  [{r['category']}] {r['id']}: {detail}")
             if "answer" in r:
                 print(f"      -> {r['answer'][:160]}")

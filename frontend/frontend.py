@@ -27,6 +27,18 @@ PATH_LABELS = {
     "no_answer": "no source found",
 }
 
+# used only to localize the crisis-support message; never inferred / geolocated
+COUNTRIES = {
+    "": "Not specified",
+    "BD": "Bangladesh",
+    "US": "United States",
+    "GB": "United Kingdom",
+    "IN": "India",
+    "CA": "Canada",
+    "AU": "Australia",
+    "EU": "Europe (other)",
+}
+
 EXAMPLES = [
     "What is cognitive restructuring?",
     "What cognitive distortions does CBT target?",
@@ -115,6 +127,15 @@ with st.sidebar:
     st.markdown(f"**Status:** {'🟢 ready' if online else '🔴 unavailable'}")
 
     st.divider()
+    st.selectbox(
+        "Country (for crisis-support resources)",
+        options=list(COUNTRIES),
+        format_func=lambda c: COUNTRIES[c],
+        key="country",
+        help="Only used to show local helplines if a message signals a crisis.",
+    )
+
+    st.divider()
     st.markdown("**Try an example**")
     for ex in EXAMPLES:
         if st.button(ex, use_container_width=True, key=f"ex_{ex}"):
@@ -140,8 +161,14 @@ def render_paths(paths_used):
     st.markdown(f'<div class="path-row">Sources:{chips}</div>', unsafe_allow_html=True)
 
 
-def is_crisis(answer, paths_used):
-    return bool(answer) and not paths_used and "crisis line" in answer.lower()
+def is_crisis(message):
+    """message is a stored history dict or a fresh {'kind':..., 'text':...}.
+    Prefer the backend's explicit kind; fall back to a text heuristic for
+    history saved before the flag existed."""
+    if message.get("kind"):
+        return message["kind"] == "crisis"
+    answer, paths = message.get("text", ""), message.get("paths_used")
+    return bool(answer) and not paths and "crisis" in answer.lower() and "emergency" in answer.lower()
 
 
 def _send_feedback(log_id, rating=None, note=None):
@@ -183,7 +210,7 @@ def feedback_row(log_id):
 for message in st.session_state.messages:
     avatar = USER_AVATAR if message["role"] == "user" else BOT_AVATAR
     with st.chat_message(message["role"], avatar=avatar):
-        if message["role"] == "assistant" and is_crisis(message["text"], message.get("paths_used")):
+        if message["role"] == "assistant" and is_crisis(message):
             st.error(message["text"], icon="🆘")
         else:
             st.markdown(message["text"])
@@ -209,26 +236,30 @@ if question:
             try:
                 response = requests.post(
                     f"{BACKEND_URL}/chat",
-                    json={"question": question, "thread_id": st.session_state.thread_id},
+                    json={
+                        "question": question,
+                        "thread_id": st.session_state.thread_id,
+                        "country": st.session_state.get("country") or None,
+                    },
                     timeout=120,
                 )
                 response.raise_for_status()
                 data = response.json()
                 answer = data.get("answer", "Sorry, I couldn't get a response.")
                 paths_used = data.get("paths_used", [])
+                kind = data.get("kind", "answer")
                 log_id = data.get("log_id")
             except Exception:
                 answer = "Sorry, the assistant is temporarily unavailable. Please try again."
-                paths_used = []
-                log_id = None
+                paths_used, kind, log_id = [], "answer", None
 
-        if is_crisis(answer, paths_used):
+        bot_msg = {"role": "assistant", "text": answer, "paths_used": paths_used,
+                   "kind": kind, "log_id": log_id}
+        if is_crisis(bot_msg):
             st.error(answer, icon="🆘")
         else:
             st.markdown(answer)
         render_paths(paths_used)
         feedback_row(log_id)
 
-    st.session_state.messages.append(
-        {"role": "assistant", "text": answer, "paths_used": paths_used, "log_id": log_id}
-    )
+    st.session_state.messages.append(bot_msg)

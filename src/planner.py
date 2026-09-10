@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 from .llm import fast_llm, smart_llm
 from .router import route_all
 from .condense import condense_question
-from .safety import check_safety
+from .safety import screen_message
 
 class SubquestionList(BaseModel):
     subquestions: list[str] = Field(
@@ -52,9 +52,12 @@ def run_pipeline(question, chat_history=None):
     route/retrieve -> synthesize. Used by the offline eval and any non-stateful
     caller. On a crisis it short-circuits exactly like the agent does.
     """
-    crisis = check_safety(question)
-    if crisis:
-        return {"answer": crisis, "results": [], "crisis": True, "standalone_question": question}
+    kind, blocked = screen_message(question)
+    if kind:
+        return {
+            "answer": blocked, "results": [], "standalone_question": question,
+            "crisis": kind == "crisis", "off_topic": kind == "off_topic",
+        }
 
     standalone = condense_question(question, chat_history) if chat_history else question
     subquestions = plan_subquestions(standalone)
@@ -64,6 +67,7 @@ def run_pipeline(question, chat_history=None):
         "answer": answer,
         "results": results,
         "crisis": False,
+        "off_topic": False,
         "standalone_question": standalone,
         # flat list of every retrieved chunk/triple as a string - what Ragas
         # (and any other doc-level eval) consumes as `retrieved_contexts`

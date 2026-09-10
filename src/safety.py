@@ -1,11 +1,19 @@
+"""First gate on every user message: crisis screen + domain guard.
+
+One Haiku call classifies both:
+  * crisis risk  -> return a localized crisis response, skip retrieval
+  * on-topic?    -> if the message isn't about mental health / CBT / coping,
+                    politely decline instead of falling through to web search
+
+Crisis always wins: a high-risk message gets the crisis response even if it
+isn't phrased as a mental-health question.
+"""
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from .crisis_resources import CRISIS_RESPONSE, build_crisis_response
 from .llm import fast_llm
-
-CRISIS_RESPONSE = """It sounds like you might be going through something very difficult right now.
-Please reach out to a crisis line in your area, or a trusted person near you, for immediate support."""
 
 # Fallback only. Used when the LLM classifier below is unreachable. Kept
 # deliberately broad (we would rather over-trigger the crisis message than
@@ -20,8 +28,14 @@ CRISIS_KEYWORDS = [
     "cut myself", "cutting myself",
 ]
 
+DOMAIN_REFUSAL = (
+    "I can only help with mental health, CBT, and coping-skill questions, so I "
+    "can't help with that one. If it's connected to how you're feeling or "
+    "coping, try rephrasing it that way and I'll do my best."
+)
 
-class CrisisCheck(BaseModel):
+
+class MessageCheck(BaseModel):
     risk: Literal["none", "low", "high"] = Field(
         description=(
             "high  = suicidal thoughts or intent, intent to self-harm, a disclosure of current or ongoing self-harm, or being in immediate danger. "
@@ -29,12 +43,21 @@ class CrisisCheck(BaseModel):
             "none  = no indication of self-harm or crisis at all."
         )
     )
+    on_topic: bool = Field(
+        description=(
+            "True if the message relates to mental health, emotional wellbeing, therapy or CBT, "
+            "coping and stress, psychology/psychiatry, a personal struggle or feeling, or asking "
+            "how to support someone. This is broad - anything about how a person feels or copes "
+            "counts, even if it's vague or the chatbot may not have a good answer. "
+            "False only for messages clearly about an unrelated topic: coding, math, general "
+            "trivia, cooking, sports results, weather, product help, and the like."
+        )
+    )
 
 
-# runs once per message and is on the latency-critical path. crisis risk is a
-# well-scoped 3-class judgment that Haiku handles, with the keyword screen as a
-# backstop. bump FAST_MODEL if a stronger safety classifier is wanted.
-_classifier = fast_llm.with_structured_output(CrisisCheck)
+# runs once per message and is on the latency-critical path. Haiku handles this
+# well-scoped 2-part judgment; the keyword screen is the crisis backstop.
+_classifier = fast_llm.with_structured_output(MessageCheck)
 
 
 def _keyword_hit(text):
@@ -42,21 +65,36 @@ def _keyword_hit(text):
     return any(k in lowered for k in CRISIS_KEYWORDS)
 
 
-def check_safety(user_message):
-    """Return the crisis response string if the message signals a crisis, else None.
+def screen_message(user_message, country=None):
+    """Return (kind, response):
+      ("crisis",   <localized crisis text>)  - stop, show this
+      ("off_topic", <polite refusal>)        - stop, show this
+      (None, None)                           - carry on to retrieval
 
-    Primary check is an LLM classifier, because plain keyword matching gets
-    both directions wrong: it fires on "I do NOT want to die" (negation) and
-    misses "I've been thinking about ending it all" (no keyword). If the
-    classifier call fails we fall back to the keyword screen and err toward
-    showing the crisis message.
+    The LLM classifier is primary; plain keywords get both directions wrong
+    ("I do NOT want to die" fires; "thinking about ending it all" misses). If
+    the classifier call fails we fall back to the keyword crisis screen and let
+    everything else through (better to answer an off-topic question than to
+    block a real one when the model is down).
     """
     try:
         verdict = _classifier.invoke(
-            "You are a safety classifier for a mental health chatbot. "
-            "Classify the crisis risk in the user's message.\n\n"
+            "You are the front-door classifier for a mental health chatbot. "
+            "Judge the user's message on two axes: crisis risk, and whether it is on-topic.\n\n"
             f"Message: {user_message}"
         )
-        return CRISIS_RESPONSE if verdict.risk == "high" else None
+        if verdict.risk == "high":
+            return "crisis", build_crisis_response(country)
+        if not verdict.on_topic:
+            return "off_topic", DOMAIN_REFUSAL
+        return None, None
     except Exception:
-        return CRISIS_RESPONSE if _keyword_hit(user_message) else None
+        if _keyword_hit(user_message):
+            return "crisis", build_crisis_response(country)
+        return None, None
+
+
+def check_safety(user_message, country=None):
+    """Back-compat: just the crisis response string, or None."""
+    kind, response = screen_message(user_message, country)
+    return response if kind == "crisis" else None
