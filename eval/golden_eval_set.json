@@ -1,0 +1,128 @@
+[
+  {
+    "question": "What is cognitive behavioral therapy?",
+    "golden_answer": "Cognitive Behavior Therapy (CBT) is a structured form of talk therapy, pioneered by Dr. Aaron T. Beck in the 1960s and 1970s, that helps individuals recognize and change negative patterns of thinking and behavior so they can better cope with challenging situations and improve overall functioning.",
+    "expected_path": "naive_rag",
+    "source": "Vector store: 'Beck Institute Cares | The History of CBT' (curated source)"
+  },
+  {
+    "question": "What is psychotherapy and how is it usually delivered?",
+    "golden_answer": "Psychotherapy, also called talk therapy, refers to a variety of treatments that aim to help a person identify and change troubling emotions, thoughts, and behaviors. Most psychotherapy takes place one-on-one with a licensed mental health professional, or with other patients in a group setting. Along with medication it is one of the two most common forms of mental health treatment.",
+    "expected_path": "naive_rag",
+    "source": "Vector store: NIMH 'Psychotherapies' (curated source)"
+  },
+  {
+    "question": "What is cognitive restructuring?",
+    "golden_answer": "Cognitive restructuring is the CBT process by which patients learn to identify and challenge negative automatic thoughts, such as catastrophic thinking, and replace them with more balanced and realistic ones.",
+    "expected_path": "naive_rag",
+    "source": "Vector store: PMC article 'Psychosomatic interplay in postmenopausal osteoporosis' (pmc)"
+  },
+  {
+    "question": "How common is depression and who is most affected?",
+    "golden_answer": "Depression is a common mental disorder. According to the project's WHO fact-sheet source, an estimated 5.7% of adults globally experience depression, more women are affected than men, and depression can lead to suicide. Effective treatment exists for mild, moderate, and severe depression.",
+    "expected_path": "naive_rag",
+    "source": "Vector store: WHO 'Depressive disorder (depression)' fact sheet (curated source)"
+  },
+  {
+    "question": "How is clinical depression different from normal mood changes?",
+    "golden_answer": "Depression involves a depressed mood or a loss of pleasure or interest in activities for long periods of time and can affect all aspects of life, including relationships with family and friends. It is different from regular mood changes and everyday feelings, which are short-lived reactions to daily life.",
+    "expected_path": "naive_rag",
+    "source": "Vector store: WHO 'Depressive disorder (depression)' fact sheet (curated source)"
+  },
+  {
+    "question": "What are the main goals of psychotherapy?",
+    "golden_answer": "In general the goals of psychotherapy are to gain relief from symptoms, to maintain or enhance daily functioning, and to improve quality of life.",
+    "expected_path": "naive_rag",
+    "source": "Vector store: NIMH 'Psychotherapies' (curated source)"
+  },
+  {
+    "question": "Who developed cognitive behavior therapy and when?",
+    "golden_answer": "Cognitive Behavior Therapy was pioneered by Dr. Aaron T. Beck in the 1960s and 1970s.",
+    "expected_path": "naive_rag",
+    "source": "Vector store: 'Beck Institute Cares | The History of CBT' (curated source)"
+  },
+  {
+    "question": "What kinds of problems might lead someone to seek psychotherapy?",
+    "golden_answer": "Reasons include dealing with severe or long-term stress from a job or family situation, the loss of a loved one, or relationship problems; having physical symptoms with no medical explanation such as changes in sleep or appetite, low energy, loss of interest or pleasure, persistent irritability, excessive worry, or lasting hopelessness; a health care provider suspecting or diagnosing a mental disorder that interferes with life; or supporting a child or family member diagnosed with a mental health condition.",
+    "expected_path": "naive_rag",
+    "source": "Vector store: NIMH 'Psychotherapies' (curated source)"
+  },
+  {
+    "question": "Which cognitive distortion does the thought 'Things are getting worse, I cannot deal with this' exhibit?",
+    "golden_answer": "That thought is labeled as a Mental Filter distortion.",
+    "expected_path": "graph_rag",
+    "source": "Neo4j graph: cbt_bench_distortions, 'exhibits' relation"
+  },
+  {
+    "question": "What core beliefs does the automatic thought 'Everyone in my life has betrayed me, I cannot trust anyone' reflect?",
+    "golden_answer": "It reflects the Helpless and Unlovable core beliefs.",
+    "expected_path": "graph_rag",
+    "source": "Neo4j graph: cbt_bench, 'reflects' relation"
+  },
+  {
+    "question": "What conditions is agoraphobia connected to in the knowledge graph?",
+    "golden_answer": "Agoraphobia is linked to Panic Disorder and Panic Attacks (it co-occurs with them), and it is also associated with phobic anxiety disorder.",
+    "expected_path": "graph_rag",
+    "source": "Neo4j graph: umls_psych, 'co-occurs_with' and 'associated_with' relations"
+  },
+  {
+    "question": "Which SSRI antidepressants are indicated for anxiety disorder?",
+    "golden_answer": "Sertraline and Paroxetine are indicated for anxiety disorder; the graph also lists older antidepressants such as Trimipramine and Nortriptyline.",
+    "expected_path": "graph_rag",
+    "source": "Neo4j graph: primekg, 'indication' relation"
+  },
+  {
+    "question": "Which drugs are contraindicated in anxiety disorder according to the graph?",
+    "golden_answer": "Valproic Acid and Topiramate are listed as contraindicated in anxiety disorder.",
+    "expected_path": "graph_rag",
+    "source": "Neo4j graph: primekg, 'contraindication' relation"
+  },
+  {
+    "question": "What related disorders does the psych ontology list under obsessive-compulsive disorder?",
+    "golden_answer": "The ontology lists Trichotillomania, Excoriation (skin-picking) Disorder, and Hoarding Disorder as child concepts of obsessive-compulsive disorder, which itself sits under Anxiety Disorders and Neurotic Disorders.",
+    "expected_path": "graph_rag",
+    "source": "Neo4j graph: umls_psych, 'has_child_concept' / 'has_parent_concept' relations"
+  },
+  {
+    "question": "What does the psych ontology give as the diagnostic-criteria components of bipolar disorder?",
+    "golden_answer": "The ontology ties bipolar disorder's diagnostic criteria to Manic Disorder and to Depressed Bipolar I Disorder.",
+    "expected_path": "graph_rag",
+    "source": "Neo4j graph: umls_psych, 'diagnostic_criteria_of' / 'has_diagnostic_criteria' relations"
+  },
+  {
+    "question": "What conditions commonly co-occur with generalized anxiety disorder?",
+    "golden_answer": "The graph lists Personality Disorders, Schizophrenia, and Dementia as conditions that co-occur with generalized anxiety disorder.",
+    "expected_path": "graph_rag",
+    "source": "Neo4j graph: umls_psych, 'co-occurs_with' relation"
+  },
+  {
+    "question": "What is panic disorder and how is it treated?",
+    "golden_answer": "Panic disorder is an anxiety disorder marked by recurrent panic attacks with physical symptoms such as palpitations, sweating, trembling, shortness of breath, dizziness, and a fear of losing control. It is treated by cognitive behavioral therapy, relaxation techniques, and antidepressant medications.",
+    "expected_path": "both",
+    "source": "Neo4j graph: kaggle_disease_symptoms 'has_symptom' and 'treated_by' relations; vector store CBT/psychotherapy sources"
+  },
+  {
+    "question": "What is cognitive restructuring and which kinds of distorted thoughts does it work on?",
+    "golden_answer": "Cognitive restructuring is the CBT process of identifying and challenging negative automatic thoughts and replacing them with balanced, realistic ones. The distortions it targets, as catalogued in the graph, include all-or-nothing thinking, overgeneralization, mind reading, magnification, mental filter, personalization, labeling, and fortune-telling.",
+    "expected_path": "both",
+    "source": "Vector store: PMC and Beck Institute sources; Neo4j graph: cbt_bench_distortions 'exhibits' relation"
+  },
+  {
+    "question": "What is major depressive disorder and what depression subtypes does the ontology track under it?",
+    "golden_answer": "Major depressive disorder involves a depressed mood or loss of pleasure or interest in activities over long periods, affecting all aspects of life and capable of leading to suicide. Under it the psych ontology tracks subtypes including Major Depression (Single Episode), Endogenous Depression, Involutional Depression, Reactive Depression, Postpartum Depression, and Recurrent Depression.",
+    "expected_path": "both",
+    "source": "Vector store: WHO 'Depressive disorder (depression)' fact sheet; Neo4j graph: umls_psych 'has_child_concept' relation"
+  },
+  {
+    "question": "How does CBT work, and what core beliefs do negative automatic thoughts usually map to?",
+    "golden_answer": "CBT is structured talk therapy that helps people recognize and change negative patterns of thinking and behavior. In the graph's CBT data, negative automatic thoughts map onto a small set of core beliefs, most commonly Helpless, Unlovable, and Worthless.",
+    "expected_path": "both",
+    "source": "Vector store: Beck Institute sources; Neo4j graph: cbt_bench 'reflects' relation"
+  },
+  {
+    "question": "What is anxiety and how is it commonly treated?",
+    "golden_answer": "Anxiety disorders involve excessive worry and fear along with physical symptoms. Common treatments are cognitive behavioral therapy and other psychotherapy, antidepressant medications, and anti-anxiety drugs.",
+    "expected_path": "both",
+    "source": "Vector store: NIMH psychotherapy source; Neo4j graph: kaggle_disease_symptoms 'treated_by' relation"
+  }
+]

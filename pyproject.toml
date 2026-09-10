@@ -1,0 +1,34 @@
+[project]
+name = "mental-health-chatbot"
+version = "0.1.0"
+description = "A CBT / mental-health chatbot with hybrid graph + vector retrieval, a corrective-retrieval router, LangGraph agent, and a live web-search fallback."
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "biopython>=1.88",
+    "dotenv>=0.9.9",
+    "langchain>=1.4.0",
+    "langchain-anthropic>=1.7.1",
+    "langchain-community>=0.4.2",
+    "langchain-experimental>=0.4.2",
+    "langchain-groq>=1.1.3",
+    "langchain-huggingface>=1.2.2",
+    "langchain-neo4j>=0.10.0",
+    "langchain-openai>=1.6.1",
+    "langgraph>=1.2.11",
+    "langgraph-checkpoint-postgres>=3.1.2",
+    "lxml>=6.1.3",
+    "neo4j>=6.3.0",
+    "pandas>=3.0.5",
+    "pinecone>=10.0.0",
+    "pinecone-client>=6.0.0",
+    "psycopg[binary]>=3.3.5",
+    "psycopg-pool>=3.2.6",
+    "pydantic>=2.13.5",
+    "python-dotenv>=1.2.3",
+    "requests>=2.34.2",
+    "sentence-transformers>=6.0.1",
+    "streamlit>=1.63.0",
+    "tavily-python>=0.8.1",
+    "voyageai>=0.5.0",
+]

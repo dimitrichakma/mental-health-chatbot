@@ -1,0 +1,28 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+.env
+
+# OS
+.DS_Store
+
+# Local Claude Code instructions / scratch (CLAUDE.md here is a stale one-off
+# task brief, not project docs)
+CLAUDE.md
+.claude/
+
+# Internal build notes — kept local
+docs/
+
+# Data — kept local (source datasets, chunked/embedded artifacts, backups).
+# Rebuild with the data_prep/ scripts. Directory skeleton is preserved.
+/data/**
+!/data/**/
+!/data/**/.gitkeep

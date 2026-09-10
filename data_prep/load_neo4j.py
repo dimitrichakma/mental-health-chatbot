@@ -1,0 +1,103 @@
+from langchain_neo4j import Neo4jGraph
+from dotenv import load_dotenv
+import os
+
+from graph_aliases import NODE_ALIASES
+
+load_dotenv()
+
+graph = Neo4jGraph(
+    url=os.environ["NEO4J_URI"],
+    username=os.environ["NEO4J_USERNAME"],
+    password=os.environ["NEO4J_PASSWORD"],
+)
+
+# confirm APOC is available before relying on it for dynamic labels / batch delete
+apoc_check = graph.query("RETURN apoc.version() AS version")
+print("APOC version:", apoc_check[0]["version"])
+
+CSV_URL = "https://raw.githubusercontent.com/dimitrichakma/cbt-graph-data/main/graph_triples_rebalanced.csv"
+
+# Tier 1 - drop at load time. The CSV stays the raw source of record; this
+# script is the transform.
+#   kaggle_mental_illness_survey  - generic symptom bag pinned to every disorder
+#   disease_protein               - PrimeKG protein associations (~26% of the graph)
+#   disease_phenotype_positive/negative - rare-genetic-syndrome phenotype links
+#   drug_effect                   - drug -> side-effect, sparse and low value here
+#   has_broader/has_narrower_concept - near-duplicates of has_parent/has_child
+#   phenotype_phenotype, bioprocess_bioprocess, phenotype_protein - PrimeKG cruft
+SKIP_ORIGINS = ["kaggle_mental_illness_survey"]
+SKIP_RELATIONS = [
+    "disease_protein",
+    "disease_phenotype_positive",
+    "disease_phenotype_negative",
+    "drug_effect",
+    "has_broader_concept",
+    "has_narrower_concept",
+    "phenotype_phenotype",
+    "bioprocess_bioprocess",
+    "phenotype_protein",
+]
+
+# --- wipe the existing graph so this is a clean reload, not an additive MERGE ---
+print("Clearing existing graph...")
+graph.query(
+    """
+    CALL apoc.periodic.iterate(
+        'MATCH (n) RETURN n',
+        'DETACH DELETE n',
+        {batchSize: 1000}
+    )
+    """
+)
+graph.query("CALL apoc.schema.assert({}, {})")  # drop any stale indexes/constraints
+print("Cleared.")
+
+# --- load: Tier 1 filter, Tier 2 canonicalization, :Entity label ---
+# canonical name = NODE_ALIASES[lower(trimmed name)] if present, else the
+# trimmed name. self-loops created by canonicalization (or already in the
+# data) are dropped.
+load_query = """
+LOAD CSV WITH HEADERS FROM $csv_url AS row
+CALL {
+    WITH row
+    WITH row
+    WHERE NOT row.origin IN $skip_origins AND NOT row.relation IN $skip_relations
+    WITH row,
+         apoc.text.replace(trim(row.source), ' +', ' ') AS s_raw,
+         apoc.text.replace(trim(row.target), ' +', ' ') AS t_raw
+    WITH row,
+         coalesce($aliases[toLower(s_raw)], s_raw) AS s_name,
+         coalesce($aliases[toLower(t_raw)], t_raw) AS t_name
+    WHERE s_name <> t_name AND s_name <> '' AND t_name <> ''
+    MERGE (a:Entity {name: s_name})
+    MERGE (b:Entity {name: t_name})
+    MERGE (a)-[r:RELATION {type: row.relation, origin: row.origin}]->(b)
+    WITH a, b, row
+    CALL apoc.create.addLabels(a, [apoc.text.capitalize(replace(replace(row.source_type, ' ', '_'), '-', '_'))]) YIELD node AS n1
+    CALL apoc.create.addLabels(b, [apoc.text.capitalize(replace(replace(row.target_type, ' ', '_'), '-', '_'))]) YIELD node AS n2
+    RETURN n1, n2
+} IN TRANSACTIONS OF 1000 ROWS
+RETURN count(*) AS rows_loaded
+"""
+
+result = graph.query(load_query, params={
+    "csv_url": CSV_URL,
+    "skip_origins": SKIP_ORIGINS,
+    "skip_relations": SKIP_RELATIONS,
+    "aliases": NODE_ALIASES,
+})
+print(f"Rows loaded (after filtering + canonicalization): {result[0]['rows_loaded']}")
+
+# --- indexes for entity lookup ---
+graph.query("CREATE INDEX entity_name IF NOT EXISTS FOR (n:Entity) ON (n.name)")
+graph.query("CREATE FULLTEXT INDEX entity_name_ft IF NOT EXISTS FOR (n:Entity) ON EACH [n.name]")
+graph.query("CALL db.awaitIndexes(300)")
+print("Indexes created.")
+
+nodes = graph.query("MATCH (n:Entity) RETURN count(n) AS c")[0]["c"]
+rels = graph.query("MATCH ()-[r:RELATION]->() RETURN count(r) AS c")[0]["c"]
+print(f"Graph: {nodes} nodes, {rels} relationships")
+for row in graph.query("MATCH ()-[r:RELATION]->() RETURN r.type AS t, count(*) AS c ORDER BY c DESC LIMIT 12"):
+    print(f"  {row['t']:28} {row['c']}")
+print("Graph loaded")
