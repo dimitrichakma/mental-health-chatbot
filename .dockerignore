@@ -18,3 +18,6 @@ CLAUDE.md
 .claude
 requirements.txt
 railway.toml
+evaluate.py
+review_logs.py
+review_logs.sql

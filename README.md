@@ -88,11 +88,26 @@ CSV must be supplied separately.
 ## Run
 
 ```bash
-uvicorn backend.backend:app --port 8000     # API  (POST /chat, GET /health)
+uvicorn backend.backend:app --port 8000     # API  (POST /chat, /feedback, GET /health)
 streamlit run frontend/frontend.py          # chat UI  ->  http://localhost:8501
 ```
 
 The Streamlit app reads `BACKEND_URL` (default `http://localhost:8000`).
+
+## Conversation logging & feedback
+
+When `DATABASE_URL` is set, the backend logs every `/chat` (question, answer,
+retrieval paths, latency, crisis flag) to a `conversation_log` table, and the
+UI shows a 👍/👎 + optional note under each answer (`POST /feedback`). Review
+tester sessions with:
+
+```bash
+python review_logs.py            # summary + newest conversations
+python review_logs.py --flagged  # only 👎 / noted
+python review_logs.py --csv out.csv
+```
+
+or ad-hoc SQL via `railway connect Postgres` + `review_logs.sql`.
 
 Library use / eval:
 

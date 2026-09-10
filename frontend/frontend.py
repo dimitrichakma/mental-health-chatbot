@@ -144,6 +144,41 @@ def is_crisis(answer, paths_used):
     return bool(answer) and not paths_used and "crisis line" in answer.lower()
 
 
+def _send_feedback(log_id, rating=None, note=None):
+    try:
+        requests.post(
+            f"{BACKEND_URL}/feedback",
+            json={"log_id": log_id, "rating": rating, "note": note},
+            timeout=15,
+        )
+    except Exception:
+        pass
+
+
+def feedback_row(log_id):
+    """Thumbs + optional note under an assistant message. No-op if the backend
+    didn't return a log_id (e.g. logging disabled)."""
+    if not log_id:
+        return
+    sent_key = f"fb_sent_{log_id}"
+    left, right = st.columns([1, 5])
+    with left:
+        choice = st.feedback("thumbs", key=f"fb_{log_id}")
+    if choice is not None and st.session_state.get(sent_key) != choice:
+        _send_feedback(log_id, rating=1 if choice == 1 else -1)
+        st.session_state[sent_key] = choice
+        st.toast("Feedback saved — thanks!")
+    with right:
+        with st.popover("💬 note"):
+            note = st.text_area(
+                "note", key=f"note_{log_id}", label_visibility="collapsed",
+                placeholder="Optional: accuracy issue, tone, missing info, safety concern…",
+            )
+            if st.button("Send note", key=f"notebtn_{log_id}") and note.strip():
+                _send_feedback(log_id, note=note)
+                st.toast("Note saved — thanks!")
+
+
 # --- replay history ---
 for message in st.session_state.messages:
     avatar = USER_AVATAR if message["role"] == "user" else BOT_AVATAR
@@ -153,6 +188,8 @@ for message in st.session_state.messages:
         else:
             st.markdown(message["text"])
         render_paths(message.get("paths_used"))
+        if message["role"] == "assistant":
+            feedback_row(message.get("log_id"))
 
 if len(st.session_state.messages) == 0 and st.session_state.pending is None:
     st.info("Pick an example from the sidebar, or type a question below to start.", icon="💬")
@@ -179,16 +216,19 @@ if question:
                 data = response.json()
                 answer = data.get("answer", "Sorry, I couldn't get a response.")
                 paths_used = data.get("paths_used", [])
+                log_id = data.get("log_id")
             except Exception:
                 answer = "Sorry, the assistant is temporarily unavailable. Please try again."
                 paths_used = []
+                log_id = None
 
         if is_crisis(answer, paths_used):
             st.error(answer, icon="🆘")
         else:
             st.markdown(answer)
         render_paths(paths_used)
+        feedback_row(log_id)
 
     st.session_state.messages.append(
-        {"role": "assistant", "text": answer, "paths_used": paths_used}
+        {"role": "assistant", "text": answer, "paths_used": paths_used, "log_id": log_id}
     )
