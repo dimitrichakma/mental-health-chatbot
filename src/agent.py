@@ -11,6 +11,12 @@ from .router import route_all
 
 load_dotenv()
 
+# LangSmith tracing is fully env-driven (LANGSMITH_TRACING + LANGSMITH_API_KEY);
+# just give traces a project name when one isn't set. Set LANGSMITH_HIDE_INPUTS
+# to keep user messages (incl. crisis disclosures) out of the traces.
+if os.getenv("LANGSMITH_TRACING", "").lower() in ("1", "true", "yes"):
+    os.environ.setdefault("LANGSMITH_PROJECT", "mental-health-chatbot")
+
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 class AgentState(TypedDict):
@@ -92,12 +98,21 @@ else:
 
 agent = graph.compile(checkpointer=checkpointer)
 
-def run_agent(question, thread_id="default", country=None, callbacks=None):
-    config = {"configurable": {"thread_id": thread_id}}
+def agent_config(thread_id="default", country=None, callbacks=None):
+    """Shared invoke/stream config: memory thread, per-request callbacks, and a
+    readable trace name + non-sensitive metadata for LangSmith."""
+    config = {
+        "configurable": {"thread_id": thread_id},
+        "run_name": "chat",
+        "metadata": {"thread_id": thread_id, "country": country or ""},
+    }
     if callbacks:
-        # LangGraph propagates these to every node's LLM call - lets the backend
-        # meter one request's token cost with a per-request UsageTracker
         config["callbacks"] = callbacks
+    return config
+
+
+def run_agent(question, thread_id="default", country=None, callbacks=None):
+    config = agent_config(thread_id, country, callbacks)
     result = agent.invoke({"question": question, "country": country}, config=config)
     if result.get("block_kind"):
         return {"answer": result["block_response"], "results": [], "kind": result["block_kind"]}

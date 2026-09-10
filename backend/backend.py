@@ -15,7 +15,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from src import day_budget
-from src.agent import agent, chunk_text, pool, run_agent
+from src.agent import agent, agent_config, chunk_text, pool, run_agent
 from src.usage import UsageTracker
 
 logging.basicConfig(level=logging.INFO)
@@ -203,7 +203,7 @@ def chat_stream(request: Request, body: ChatRequest):
 
     thread_id = body.thread_id or str(uuid4())
     tracker = UsageTracker()
-    config = {"configurable": {"thread_id": thread_id}, "callbacks": [tracker]}
+    config = agent_config(thread_id, body.country, [tracker])
     inp = {"question": body.question, "country": body.country}
 
     def gen():
