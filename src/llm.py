@@ -1,10 +1,10 @@
 """Shared Claude models, in two tiers.
 
 fast_llm   - Haiku: the classifier-style calls (routing, relevance grading,
-             sub-question planning, question condensing). Cheap and quick;
-             these are simple, well-scoped judgments.
-smart_llm  - Sonnet: answer synthesis, the safety/crisis classifier, and the
-             offline eval judge - the calls where quality matters most.
+             sub-question planning, question condensing, safety/crisis
+             classifier). Cheap and quick; simple, well-scoped judgments.
+smart_llm  - Sonnet: answer synthesis and the offline eval judge - the calls
+             where quality matters most.
 
 Override the model ids with the FAST_MODEL / SMART_MODEL env vars.
 """
