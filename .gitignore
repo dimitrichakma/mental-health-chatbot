@@ -27,6 +27,10 @@ docs/
 /eval/ragas_smoke.csv
 /eval/ragas_samples.json
 
+# Clinician-testing materials — kept local
+/eval/clinician_forms.gs
+/eval/tester_briefing.md
+
 # Data — kept local (source datasets, chunked/embedded artifacts, backups).
 # Rebuild with the data_prep/ scripts. Directory skeleton is preserved.
 /data/**
