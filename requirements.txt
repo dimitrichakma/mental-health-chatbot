@@ -4,6 +4,7 @@
 fastapi>=0.141.1
 uvicorn>=0.52.4
 streamlit>=1.63.0
+requests>=2.34.2
 
 # agent + LLM
 langgraph>=1.2.11

@@ -79,9 +79,17 @@ CSV must be supplied separately.
 
 ## Run
 
+```bash
+uvicorn backend.backend:app --port 8000     # API  (POST /chat, GET /health)
+streamlit run frontend/frontend.py          # chat UI  ->  http://localhost:8501
+```
+
+The Streamlit app reads `BACKEND_URL` (default `http://localhost:8000`).
+
+Library use / eval:
+
 ```python
 from src.agent import run_agent
-
 run_agent("what is exposure and response prevention?", thread_id="demo")
 run_agent("what about for OCD specifically?", thread_id="demo")   # uses conversation memory
 ```
@@ -93,7 +101,7 @@ python evaluate.py    # scores routing + answers against the golden set (slow, m
 ## Status
 
 Working: safety gate, condense/plan/retrieve/synthesize agent, corrective
-router, graph + vector retrieval, web fallback, Postgres memory, eval harness.
+router, graph + vector retrieval, web fallback, Postgres memory, FastAPI
+backend, Streamlit chat UI, eval harness.
 
-TODO: `backend/backend.py` (FastAPI `POST /chat`), `frontend/streamlit_app.py`.
 See `docs/FIXES.md` for the full history of retrieval/graph/corpus tuning.
