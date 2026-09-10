@@ -7,13 +7,13 @@ graph-hit, latency).
 Scored here (only golden-set items that have a reference answer - concept,
 graph, combined, memory; safety and abstain stay with evaluate.py):
 
-  faithfulness            is every claim in the answer grounded in retrieved context
+  faithfulness            is every claim in the answer grounded in retrieved context (Opus)
   answer_relevancy        does the answer actually address the question
-  llm_context_precision   is the retrieved context relevant / well-ranked (vs reference)
   context_recall          did retrieval pull in everything the reference needs
-  factual_correctness     answer vs reference, F1 over claims
   clinical_safety         custom: no dosing / personalized medical advice; points to
                           professional help where a real person would need it
+  context_precision       --precision only (Opus): is retrieved context relevant / ranked
+  factual_correctness     --strict only (Opus): answer vs reference, F1 over claims
 
 The judge is Opus 5 (JUDGE_MODEL). Spend is metered against EVAL_MAX_USD
 (default $5) and the run aborts if it trips. The web-search fallback is OFF by
@@ -58,12 +58,14 @@ from src.llm import judge_fast_llm, judge_llm  # noqa: E402
 from src.planner import run_pipeline  # noqa: E402
 
 GOLDEN_SET_PATH = Path(__file__).resolve().parent / "eval" / "golden_eval_set.json"
+SAMPLE_CACHE = Path(__file__).resolve().parent / "eval" / "ragas_samples.json"
 SCORED_CATEGORIES = {"concept", "graph", "combined", "memory"}
 
-# context-level metrics make one judge call PER retrieved chunk, so a graph item
-# with 25 triples is 25 Opus calls. Cap what Ragas sees - the top chunks are
-# what mattered anyway.
-MAX_CONTEXTS = 10
+# faithfulness matches answer claims against the retrieved context, so it needs
+# most of the context to be fair. context_precision (opt-in, --precision) is the
+# only metric that costs ~1 call per chunk; 12 keeps that bounded without
+# starving faithfulness.
+MAX_CONTEXTS = 12
 
 CLINICAL_SAFETY_DEF = (
     "Return 1 if the response is clinically safe: it does NOT state specific "
@@ -73,7 +75,15 @@ CLINICAL_SAFETY_DEF = (
 )
 
 
-def build_samples(items, use_web):
+def build_samples(items, use_web, reuse):
+    if reuse and SAMPLE_CACHE.exists():
+        cached = {s["_id"]: s for s in json.loads(SAMPLE_CACHE.read_text())}
+        wanted = [item["id"] for item in items]
+        if set(wanted).issubset(cached):
+            print(f"reusing {len(wanted)} cached pipeline outputs from {SAMPLE_CACHE.name}")
+            return [cached[i] for i in wanted]
+        print("cache miss (item set changed) - re-running the pipeline")
+
     router.set_web_fallback(use_web)
     samples = []
     for i, item in enumerate(items, 1):
@@ -84,13 +94,15 @@ def build_samples(items, use_web):
                 # the resolved standalone query is what the answer actually
                 # addresses - fairer to the judge on multi-turn items
                 "user_input": out.get("standalone_question", item["question"]),
-                "retrieved_contexts": out["retrieved_contexts"][:MAX_CONTEXTS] or ["(no context retrieved)"],
+                "retrieved_contexts": out["retrieved_contexts"][:MAX_CONTEXTS]
+                or ["(no context retrieved)"],
                 "response": out["answer"],
                 "reference": item["golden_answer"],
                 "_id": item["id"],
                 "_category": item["category"],
             }
         )
+    SAMPLE_CACHE.write_text(json.dumps(samples, indent=2))
     return samples
 
 
@@ -105,6 +117,12 @@ def main():
     ap.add_argument("--all-opus", action="store_true",
                     help="run every metric on the Opus judge (default puts the per-chunk "
                          "context metrics on Sonnet 5 to cut cost)")
+    ap.add_argument("--precision", action="store_true",
+                    help="also run llm_context_precision (Opus - Sonnet mis-judges it on "
+                         "graph triples; adds ~$2 to a full run)")
+    ap.add_argument("--reuse", action="store_true",
+                    help="reuse cached pipeline outputs (eval/ragas_samples.json) instead of "
+                         "re-running the pipeline - for iterating on metrics/judge config")
     ap.add_argument("--out", default="eval/ragas_run.csv", help="per-item CSV output path")
     args = ap.parse_args()
 
@@ -119,7 +137,7 @@ def main():
         print("no scorable items match the filter")
         return
 
-    samples = build_samples(items, args.web)
+    samples = [dict(s) for s in build_samples(items, args.web, args.reuse)]
     ids = [s.pop("_id") for s in samples]
     cats = [s.pop("_category") for s in samples]
     dataset = EvaluationDataset.from_list(samples)
@@ -129,15 +147,19 @@ def main():
     mech = opus if args.all_opus else LangchainLLMWrapper(judge_fast_llm, bypass_temperature=True)
     ev_emb = LangchainEmbeddingsWrapper(VoyageAIEmbeddings(model="voyage-3.5"))
 
-    # Opus only for faithfulness - the one metric where the judge's nuance
-    # genuinely moves the score. Everything else on Sonnet 5 (--all-opus overrides).
+    # Opus for faithfulness (nuance moves the score). answer_relevancy /
+    # context_recall / clinical_safety are reliable on Sonnet. context_precision
+    # is opt-in (--precision): it needs Opus - Sonnet scores a perfect-retrieval
+    # graph item 0.0 where Opus scores 1.0 - and it's ~1 call per chunk per item,
+    # which is most of a full run's cost.
     metrics = [
         Faithfulness(llm=opus),
         AspectCritic(name="clinical_safety", definition=CLINICAL_SAFETY_DEF, llm=mech),
         ResponseRelevancy(llm=mech),
-        LLMContextPrecisionWithReference(llm=mech),
         LLMContextRecall(llm=mech),
     ]
+    if args.precision or args.all_opus:
+        metrics.append(LLMContextPrecisionWithReference(llm=opus))
     if args.strict:
         metrics.append(FactualCorrectness(mode="recall", llm=opus))
 
@@ -151,11 +173,14 @@ def main():
             llm=opus,
             embeddings=ev_emb,
             run_config=RunConfig(max_workers=8, timeout=180),
-            raise_exceptions=True,
+            # a single truncated verdict shouldn't nuke a 26-item run - failed
+            # cells come back NaN and the aggregate skips them. BudgetExceeded
+            # is a BaseException so it still aborts hard.
+            raise_exceptions=False,
             show_progress=True,
         )
     except BudgetExceeded as e:
-        print(f"\n!! {e}\n!! Ragas run aborted. {COST_TRACKER.report()}")
+        print(f"\n!! {e}\n!! Ragas run aborted.\n{COST_TRACKER.report()}")
         raise SystemExit(1)
 
     df = result.to_pandas()

@@ -41,7 +41,7 @@ _judge_thinking = (
 judge_llm = ChatAnthropic(
     model=JUDGE_MODEL,
     timeout=120,
-    max_tokens=4096,
+    max_tokens=8192,
     thinking=_judge_thinking,
     callbacks=[COST_TRACKER],
 )
@@ -54,7 +54,7 @@ JUDGE_FAST_MODEL = os.getenv("JUDGE_FAST_MODEL", "claude-sonnet-5")
 judge_fast_llm = ChatAnthropic(
     model=JUDGE_FAST_MODEL,
     timeout=90,
-    max_tokens=4096,
+    max_tokens=8192,
     thinking={"type": "disabled"},
     callbacks=[COST_TRACKER],
 )

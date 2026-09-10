@@ -70,7 +70,7 @@
     "id": "graph-distortion-01",
     "category": "graph",
     "question": "Which cognitive distortion does the thought 'Things are getting worse, I cannot deal with this' exhibit?",
-    "golden_answer": "Reference: the graph labels that thought with the Mental Filter and Personalization distortions.",
+    "golden_answer": "The thought 'Things are getting worse, I cannot deal with this' exhibits the Mental Filter and Personalization cognitive distortions.",
     "expected_path": "graph_rag",
     "graph_check": {
       "entity": "Things are getting worse, I cannot deal with this",
@@ -82,7 +82,7 @@
     "id": "graph-corebelief-01",
     "category": "graph",
     "question": "What core beliefs does the automatic thought 'Everyone in my life has betrayed me, I cannot trust anyone' reflect?",
-    "golden_answer": "Reference: the graph ties that thought to the Helpless and Unlovable core beliefs.",
+    "golden_answer": "The thought 'Everyone in my life has betrayed me, I cannot trust anyone' reflects the Helpless and Unlovable core beliefs.",
     "expected_path": "graph_rag",
     "graph_check": {
       "entity": "Everyone in my life has betrayed me, I cannot trust anyone",
@@ -94,7 +94,7 @@
     "id": "graph-agoraphobia-01",
     "category": "graph",
     "question": "What conditions is agoraphobia connected to in the knowledge graph?",
-    "golden_answer": "Reference: agoraphobia co-occurs with / is associated with Panic Disorder, Panic Attacks, and Phobic Anxiety Disorder.",
+    "golden_answer": "Agoraphobia co-occurs with and is associated with Panic Disorder, Panic Attacks, and Phobic Anxiety Disorder.",
     "expected_path": "graph_rag",
     "graph_check": {
       "entity": "Agoraphobia",
@@ -110,7 +110,7 @@
     "id": "graph-anxiety-indication-01",
     "category": "graph",
     "question": "Which SSRI antidepressants are indicated for anxiety disorder?",
-    "golden_answer": "Reference: the graph lists SSRIs such as Sertraline, Paroxetine and Citalopram, plus older antidepressants, as indicated for anxiety disorder.",
+    "golden_answer": "SSRIs indicated for anxiety disorder include Sertraline, Paroxetine, and Citalopram; the graph also lists older antidepressants such as Trimipramine and Nortriptyline.",
     "expected_path": [
       "graph_rag",
       "naive_rag",
@@ -127,7 +127,7 @@
     "id": "graph-anxiety-contraindication-01",
     "category": "graph",
     "question": "Which drugs are contraindicated in anxiety disorder according to the graph?",
-    "golden_answer": "Reference: the graph lists many contraindicated drugs, including Valproic Acid and Topiramate.",
+    "golden_answer": "Drugs contraindicated in anxiety disorder include Valproic Acid and Topiramate, among many others.",
     "expected_path": "graph_rag",
     "graph_check": {
       "entity": "Anxiety Disorder",
@@ -140,7 +140,7 @@
     "id": "graph-ocd-children-01",
     "category": "graph",
     "question": "What related disorders does the psych ontology list under obsessive-compulsive disorder?",
-    "golden_answer": "Reference: child concepts include Trichotillomania, Excoriation (skin-picking) Disorder, Body Dysmorphic Disorders, Kleptomania and Hoarding-type behaviour.",
+    "golden_answer": "Disorders listed under obsessive-compulsive disorder include Trichotillomania, Excoriation (skin-picking) Disorder, Body Dysmorphic Disorders, and Kleptomania.",
     "expected_path": "graph_rag",
     "graph_check": {
       "entity": "Obsessive-compulsive Disorder",
@@ -153,7 +153,7 @@
     "id": "graph-bipolar-dxcriteria-01",
     "category": "graph",
     "question": "What does the psych ontology give as the diagnostic-criteria components of bipolar disorder?",
-    "golden_answer": "Reference: bipolar disorder's diagnostic criteria are tied to Manic Disorder and Depressed Bipolar I Disorder.",
+    "golden_answer": "The diagnostic criteria of bipolar disorder are tied to Manic Disorder and Depressed Bipolar I Disorder.",
     "expected_path": "graph_rag",
     "graph_check": {
       "entity": "Bipolar Disorder",
@@ -166,7 +166,7 @@
     "id": "graph-gad-cooccur-01",
     "category": "graph",
     "question": "What conditions commonly co-occur with generalized anxiety disorder?",
-    "golden_answer": "Reference: the graph lists Personality Disorders, Schizophrenia and Dementia as co-occurring with generalized anxiety disorder.",
+    "golden_answer": "Conditions that co-occur with generalized anxiety disorder include Schizophrenia, Personality Disorders, and Dementia.",
     "expected_path": "graph_rag",
     "graph_check": {
       "entity": "Generalized Anxiety Disorder",

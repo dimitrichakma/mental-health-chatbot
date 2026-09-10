@@ -125,14 +125,16 @@ Evaluation has two layers. Install the eval deps first: `uv sync --group eval`.
 python ragas_eval.py                     # concept / graph / combined / memory items
 python ragas_eval.py --category graph
 python ragas_eval.py --limit 5           # quick smoke
-python ragas_eval.py --all-opus          # every metric on Opus (pricier)
-python ragas_eval.py --strict            # + factual_correctness (recall)
+python ragas_eval.py --reuse             # reuse cached pipeline outputs (iterate on metrics)
+python ragas_eval.py --precision         # + context_precision (Opus, ~+$2)
+python ragas_eval.py --strict            # + factual_correctness (Opus)
 ```
 
-Metrics: `faithfulness` on **Opus 5** (the one metric where the judge's nuance
-moves the score); `clinical_safety` (custom critic), `answer_relevancy`,
-`llm_context_precision`, `context_recall` on Sonnet 5. `--all-opus` runs
-everything on Opus. Per-item scores land in `eval/ragas_run.csv`.
+Default metrics: `faithfulness` on **Opus 5** (nuance moves the score);
+`clinical_safety` (custom critic), `answer_relevancy`, `context_recall` on
+Sonnet 5. `context_precision` is opt-in (`--precision`) — Sonnet mis-judges it
+on terse graph triples so it needs Opus, and it's ~1 call per chunk per item.
+`--all-opus` runs everything on Opus. Per-item scores → `eval/ragas_run.csv`.
 
 **Companion — custom harness** (`evaluate.py`) for what Ragas can't score:
 
@@ -153,9 +155,10 @@ default so `abstain` stays honest.
 
 **Judge & cost.** Opus 5 for the nuanced calls (`JUDGE_MODEL`), Sonnet 5 for
 the rest (`JUDGE_FAST_MODEL`). Spend is metered per call and the run aborts with
-a partial report once it passes `EVAL_MAX_USD` (default $5). A full Ragas pass
-runs roughly $3–4 with the default split (more with `--all-opus` / `--strict`);
-the custom harness is well under $1. Use `--category` / `--limit` while iterating.
+a partial report once it passes `EVAL_MAX_USD` (default $5) — this actually
+fires if you add `--precision` to a full run. Default full Ragas pass ≈ $3–4;
+the custom harness is well under $1. Use `--category` / `--limit` / `--reuse`
+while iterating.
 
 ## Deployment
 

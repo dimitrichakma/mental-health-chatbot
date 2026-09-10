@@ -25,6 +25,7 @@ docs/
 /eval/last_run.json
 /eval/ragas_run.csv
 /eval/ragas_smoke.csv
+/eval/ragas_samples.json
 
 # Data — kept local (source datasets, chunked/embedded artifacts, backups).
 # Rebuild with the data_prep/ scripts. Directory skeleton is preserved.
