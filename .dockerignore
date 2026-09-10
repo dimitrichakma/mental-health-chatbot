@@ -12,6 +12,7 @@ data_prep
 eval
 frontend
 docs
+assets
 README.md
 CLAUDE.md
 .claude

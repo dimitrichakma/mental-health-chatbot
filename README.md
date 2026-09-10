@@ -5,7 +5,13 @@ knowledge graph + a Pinecone vector store), a **corrective-retrieval router**, a
 **LangGraph agent** with conversation memory, and a **live web-search fallback**
 that vets, chunks, and ingests new sources on the fly.
 
+**Live app:** https://mental-health-chatbot-dimitri.streamlit.app · **API:** https://backend-production-63da.up.railway.app
+
 > Personal learning project. Not medical advice.
+
+![demo](assets/demo.gif)
+
+*Knowledge-base answer → memory follow-up ("how is **it** used for OCD") → knowledge-graph answer → safety gate.*
 
 ## How it works
 
@@ -100,29 +106,29 @@ run_agent("what about for OCD specifically?", thread_id="demo")   # uses convers
 python evaluate.py    # scores routing + answers against the golden set (slow, many API calls)
 ```
 
-## Deploy the backend (Railway)
+## Deployment
 
-The `Dockerfile` installs backend deps only (`[project.dependencies]`, no
-Streamlit/pandas/torch). `railway.toml` sets the Docker builder and a `/health`
-check.
+- **Backend** → Railway (`Dockerfile`, backend deps only) + Railway Postgres.
+  `railway.toml` sets the Docker builder, a `/health` check, and `watchPatterns`
+  so only backend-relevant pushes rebuild. Auto-deploys from `main`.
+- **Frontend** → Streamlit Community Cloud (`frontend/frontend.py`,
+  `frontend/requirements.txt`). `BACKEND_URL` is set in the app's Secrets.
+  Auto-deploys from `main`.
+
+First-time setup:
 
 ```bash
 railway init
-railway add --database postgres          # injects DATABASE_URL
-railway variables --set ANTHROPIC_API_KEY=... --set VOYAGE_API_KEY=... \
-  --set PINECONE_API_KEY=... --set NEO4J_URI=... --set NEO4J_USERNAME=... \
-  --set NEO4J_PASSWORD=... --set TAVILY_API_KEY=...
-railway up
-railway domain
+railway add --database postgres           # injects DATABASE_URL
+# set ANTHROPIC_API_KEY, VOYAGE_API_KEY, PINECONE_API_KEY, NEO4J_URI,
+# NEO4J_USERNAME, NEO4J_PASSWORD, NEO4J_DATABASE, TAVILY_API_KEY on the service
+railway up && railway domain
+railway service source connect --repo <owner>/<repo> --branch main --service backend
+# then set ALLOWED_ORIGINS to the deployed Streamlit URL
 ```
-
-Then point the frontend at it: `BACKEND_URL=https://<domain> streamlit run frontend/frontend.py`,
-and add that frontend origin to `ALLOWED_ORIGINS` in `backend/backend.py`.
 
 ## Status
 
-Working: safety gate, condense/plan/retrieve/synthesize agent, corrective
-router, graph + vector retrieval, web fallback, Postgres memory, FastAPI
-backend, Streamlit chat UI, eval harness.
-
-See `docs/FIXES.md` for the full history of retrieval/graph/corpus tuning.
+Deployed and working end-to-end: safety gate, condense/plan/retrieve/synthesize
+agent, corrective router, graph + vector retrieval, web fallback, Postgres
+memory, FastAPI backend, Streamlit chat UI, eval harness.
