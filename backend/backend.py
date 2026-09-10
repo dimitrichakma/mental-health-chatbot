@@ -5,13 +5,17 @@ import time
 from contextlib import asynccontextmanager
 from uuid import uuid4
 
+import psycopg
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from src.agent import run_agent, pool
+from src.agent import pool, run_agent
 
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("backend")
+
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 # allowed browser origins for the Streamlit frontend. defaults to local dev;
 # in deploy set ALLOWED_ORIGINS to a comma-separated list of frontend URLs.
@@ -21,9 +25,9 @@ ALLOWED_ORIGINS = [
     if o.strip()
 ]
 
-# conversation logging + feedback, for reviewing test sessions. reuses the
-# checkpointer's connection pool (pool is None -> logging disabled, e.g. local
-# dev without DATABASE_URL).
+# conversation logging + feedback, for reviewing test sessions. uses its own
+# short-lived connections (isolated from the LangGraph checkpointer's pool);
+# disabled entirely when DATABASE_URL is unset.
 _LOG_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS conversation_log (
     id            BIGSERIAL PRIMARY KEY,
@@ -43,10 +47,11 @@ CREATE TABLE IF NOT EXISTS conversation_log (
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    if pool is not None:
+    if DATABASE_URL:
         try:
-            with pool.connection() as conn:
+            with psycopg.connect(DATABASE_URL, autocommit=True) as conn:
                 conn.execute(_LOG_TABLE_SQL)
+            logger.info("conversation_log table ready")
         except Exception:
             logger.exception("could not create conversation_log table")
     yield
@@ -66,10 +71,10 @@ app.add_middleware(
 
 
 def _log_conversation(thread_id, question, answer, paths_used, is_crisis, latency_ms):
-    if pool is None:
+    if not DATABASE_URL:
         return None
     try:
-        with pool.connection() as conn:
+        with psycopg.connect(DATABASE_URL, autocommit=True) as conn:
             row = conn.execute(
                 """INSERT INTO conversation_log
                        (thread_id, question, answer, paths_used, is_crisis, latency_ms)
@@ -126,10 +131,10 @@ def chat(request: ChatRequest):
 
 @app.post("/feedback")
 def feedback(fb: Feedback):
-    if pool is None:
+    if not DATABASE_URL:
         raise HTTPException(503, "feedback storage unavailable")
     try:
-        with pool.connection() as conn:
+        with psycopg.connect(DATABASE_URL, autocommit=True) as conn:
             n = conn.execute(
                 """UPDATE conversation_log
                    SET feedback      = COALESCE(%(rating)s, feedback),
