@@ -1,3 +1,4 @@
+import json
 import os
 import uuid
 
@@ -231,35 +232,54 @@ if question:
     with st.chat_message("user", avatar=USER_AVATAR):
         st.markdown(question)
 
+    payload = {
+        "question": question,
+        "thread_id": st.session_state.thread_id,
+        "country": st.session_state.get("country") or None,
+    }
+
     with st.chat_message("assistant", avatar=BOT_AVATAR):
-        with st.spinner("Thinking through the knowledge base and graph..."):
-            try:
-                response = requests.post(
-                    f"{BACKEND_URL}/chat",
-                    json={
-                        "question": question,
-                        "thread_id": st.session_state.thread_id,
-                        "country": st.session_state.get("country") or None,
-                    },
-                    timeout=120,
-                )
-                response.raise_for_status()
-                data = response.json()
-                answer = data.get("answer", "Sorry, I couldn't get a response.")
-                paths_used = data.get("paths_used", [])
-                kind = data.get("kind", "answer")
-                log_id = data.get("log_id")
-            except Exception:
-                answer = "Sorry, the assistant is temporarily unavailable. Please try again."
-                paths_used, kind, log_id = [], "answer", None
+        meta = {"kind": "answer", "paths_used": [], "log_id": None}
+        answer = ""
+        box = st.empty()
+        box.markdown("_Thinking through the knowledge base and graph…_")
 
-        bot_msg = {"role": "assistant", "text": answer, "paths_used": paths_used,
-                   "kind": kind, "log_id": log_id}
-        if is_crisis(bot_msg):
-            st.error(answer, icon="🆘")
-        else:
-            st.markdown(answer)
-        render_paths(paths_used)
-        feedback_row(log_id)
+        def render(text, final=False):
+            if meta["kind"] == "crisis":
+                box.error(text, icon="🆘")
+            else:
+                box.markdown(text if final else text + " ▌")
 
-    st.session_state.messages.append(bot_msg)
+        try:
+            with requests.post(
+                f"{BACKEND_URL}/chat/stream", json=payload, stream=True, timeout=120
+            ) as resp:
+                resp.raise_for_status()
+                for raw in resp.iter_lines():
+                    if not raw or not raw.startswith(b"data: "):
+                        continue
+                    evt = json.loads(raw[6:])
+                    t = evt.get("type")
+                    if t == "meta":
+                        meta["kind"] = evt.get("kind", meta["kind"])
+                        if "paths_used" in evt:
+                            meta["paths_used"] = evt["paths_used"]
+                    elif t == "token":
+                        answer += evt["text"]
+                        render(answer)
+                    elif t == "done":
+                        meta.update({k: evt[k] for k in ("log_id", "kind", "paths_used")
+                                    if k in evt})
+                    elif t == "error":
+                        raise RuntimeError(evt.get("text", "stream error"))
+        except Exception:
+            answer = answer or "Sorry, the assistant is temporarily unavailable. Please try again."
+
+        render(answer, final=True)
+        render_paths(meta["paths_used"])
+        feedback_row(meta["log_id"])
+
+    st.session_state.messages.append(
+        {"role": "assistant", "text": answer, "paths_used": meta["paths_used"],
+         "kind": meta["kind"], "log_id": meta["log_id"]}
+    )

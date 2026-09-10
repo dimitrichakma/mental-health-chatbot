@@ -5,9 +5,9 @@ from psycopg_pool import ConnectionPool
 from dotenv import load_dotenv
 import os
 from .safety import screen_message
-from .planner import plan_subquestions, synthesize_answer
+from .planner import prepare_query, synthesis_prompt, NO_CONTEXT_ANSWER
+from .llm import smart_llm
 from .router import route_all
-from .condense import condense_question
 
 load_dotenv()
 
@@ -31,18 +31,29 @@ def safety_node(state: AgentState) -> dict:
 def route_after_safety(state: AgentState) -> str:
     return "end_early" if state.get("block_kind") else "continue"
 
-def condense_node(state: AgentState) -> dict:
-    chat_history = state.get("chat_history", [])
-    return {"standalone_question": condense_question(state["question"], chat_history)}
-
-def plan_node(state: AgentState) -> dict:
-    return {"subquestions": plan_subquestions(state["standalone_question"])}
+def prepare_node(state: AgentState) -> dict:
+    standalone, subs = prepare_query(state["question"], state.get("chat_history", []))
+    return {"standalone_question": standalone, "subquestions": subs}
 
 def retrieve_node(state: AgentState) -> dict:
     return {"results": route_all(state["subquestions"])}
 
+def chunk_text(chunk) -> str:
+    """AIMessageChunk content -> plain text (handles the content-block list form)."""
+    c = getattr(chunk, "content", "")
+    if isinstance(c, str):
+        return c
+    return "".join(b.get("text", "") for b in c if isinstance(b, dict))
+
+
 def synthesize_node(state: AgentState) -> dict:
-    answer = synthesize_answer(state["standalone_question"], state["results"])
+    prompt = synthesis_prompt(state["standalone_question"], state["results"])
+    if prompt is None:
+        answer = NO_CONTEXT_ANSWER
+    else:
+        # stream the tokens so /chat/stream can forward them as they arrive;
+        # /chat just gets the assembled string back
+        answer = "".join(chunk_text(c) for c in smart_llm.stream(prompt))
     # build a new list rather than mutating the one LangGraph handed us
     history = state.get("chat_history", []) + [
         {"question": state["question"], "answer": answer}
@@ -51,18 +62,16 @@ def synthesize_node(state: AgentState) -> dict:
 
 graph = StateGraph(AgentState)
 graph.add_node("safety", safety_node)
-graph.add_node("condense", condense_node)
-graph.add_node("plan", plan_node)
+graph.add_node("prepare", prepare_node)
 graph.add_node("retrieve", retrieve_node)
 graph.add_node("synthesize", synthesize_node)
 
 graph.add_edge(START, "safety")
 graph.add_conditional_edges("safety", route_after_safety, {
     "end_early": END,
-    "continue": "condense"
+    "continue": "prepare"
 })
-graph.add_edge("condense", "plan")
-graph.add_edge("plan", "retrieve")
+graph.add_edge("prepare", "retrieve")
 graph.add_edge("retrieve", "synthesize")
 graph.add_edge("synthesize", END)
 

@@ -8,13 +8,14 @@ from uuid import uuid4
 import psycopg
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from src import day_budget
-from src.agent import pool, run_agent
+from src.agent import agent, chunk_text, pool, run_agent
 from src.usage import UsageTracker
 
 logging.basicConfig(level=logging.INFO)
@@ -179,6 +180,83 @@ def chat(request: Request, body: ChatRequest):
         "thread_id": thread_id,
         "log_id": log_id,
     }
+
+
+def _sse(obj):
+    return f"data: {json.dumps(obj)}\n\n"
+
+
+@app.post("/chat/stream")
+@limiter.limit(CHAT_RATE_LIMIT)
+def chat_stream(request: Request, body: ChatRequest):
+    """Same as /chat but streams the answer as Server-Sent Events. Event types:
+      meta   {kind, paths_used?, thread_id}   - once, before any tokens
+      token  {text}                           - repeated, append in order
+      done   {log_id, kind, paths_used, latency_ms}
+      error  {text}
+    """
+    spent, limit, over = day_budget.status()
+    if over:
+        raise HTTPException(
+            503, "The assistant has reached its usage limit for today. Please try again tomorrow."
+        )
+
+    thread_id = body.thread_id or str(uuid4())
+    tracker = UsageTracker()
+    config = {"configurable": {"thread_id": thread_id}, "callbacks": [tracker]}
+    inp = {"question": body.question, "country": body.country}
+
+    def gen():
+        t0 = time.perf_counter()
+        kind, paths_used, parts = "answer", [], []
+        streamed_tokens = False
+        try:
+            for mode, payload in agent.stream(inp, config, stream_mode=["updates", "messages"]):
+                if mode == "updates":
+                    for node, delta in payload.items():
+                        if node == "safety" and delta.get("block_kind"):
+                            kind = delta["block_kind"]
+                            parts.append(delta["block_response"])
+                            yield _sse({"type": "meta", "kind": kind, "thread_id": thread_id})
+                            yield _sse({"type": "token", "text": delta["block_response"]})
+                        elif node == "retrieve":
+                            paths_used = sorted({r["path"] for r in delta.get("results", [])})
+                            yield _sse({"type": "meta", "kind": "answer",
+                                        "paths_used": paths_used, "thread_id": thread_id})
+                        elif node == "synthesize" and not streamed_tokens and delta.get("answer"):
+                            # token streaming didn't come through - send the whole answer once
+                            parts.append(delta["answer"])
+                            yield _sse({"type": "token", "text": delta["answer"]})
+                elif mode == "messages":
+                    msg, meta = payload
+                    if meta.get("langgraph_node") == "synthesize":
+                        piece = chunk_text(msg)
+                        if piece:
+                            streamed_tokens = True
+                            parts.append(piece)
+                            yield _sse({"type": "token", "text": piece})
+        except Exception:
+            logger.exception("chat/stream failed")
+            yield _sse({"type": "error",
+                        "text": "The assistant is temporarily unavailable. Please try again."})
+            return
+
+        answer = "".join(parts)
+        latency_ms = int((time.perf_counter() - t0) * 1000)
+        snap = tracker.snapshot()
+        day_budget.record(snap)
+        logger.info("chat/stream done: %d ms, $%.5f, day $%.3f/$%.2f",
+                    latency_ms, snap["cost_usd"], spent + snap["cost_usd"], limit)
+        log_id = _log_conversation(thread_id, body.question, answer, paths_used,
+                                   kind == "crisis", latency_ms, snap["cost_usd"])
+        yield _sse({"type": "done", "log_id": log_id, "kind": kind,
+                    "paths_used": paths_used, "latency_ms": latency_ms})
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.post("/feedback")

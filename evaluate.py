@@ -1,6 +1,6 @@
 """Offline evaluation for the retrieval pipeline.
 
-Runs the full pipeline (safety -> condense -> plan -> route/retrieve ->
+Runs the full pipeline (safety -> prepare -> route/retrieve ->
 synthesize) over eval/golden_eval_set.json and scores each item by its
 category:
 

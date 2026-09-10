@@ -37,6 +37,10 @@ retrieve ──► per sub-question, the router:
 synthesize ► answer from retrieved context only; refuses to guess
 ```
 
+`condense` + `plan` are one `fast_llm` call (`prepare`). The backend streams
+the synthesized answer token-by-token over SSE (`POST /chat/stream`); `POST
+/chat` still returns it in one shot.
+
 - **Graph** (`src/retrieval.py`): relation-tiered traversal — specific facts
   (contraindication, has_symptom, exhibits, reflects…) ranked above vague
   disease links above plain hierarchy; round-robin diversify so one relation
