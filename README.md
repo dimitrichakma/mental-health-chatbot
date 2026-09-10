@@ -129,10 +129,10 @@ python ragas_eval.py --all-opus          # every metric on Opus (pricier)
 python ragas_eval.py --strict            # + factual_correctness (recall)
 ```
 
-Metrics: `faithfulness` and a custom `clinical_safety` critic on **Opus 5**;
-`answer_relevancy`, `llm_context_precision`, `context_recall` on Sonnet 5 (they
-make one call per retrieved chunk — Opus there is most of the bill for little
-gain). Per-item scores land in `eval/ragas_run.csv`.
+Metrics: `faithfulness` on **Opus 5** (the one metric where the judge's nuance
+moves the score); `clinical_safety` (custom critic), `answer_relevancy`,
+`llm_context_precision`, `context_recall` on Sonnet 5. `--all-opus` runs
+everything on Opus. Per-item scores land in `eval/ragas_run.csv`.
 
 **Companion — custom harness** (`evaluate.py`) for what Ragas can't score:
 
@@ -151,11 +151,11 @@ crisis gate fired exactly when it should, and `abstain` on whether the bot
 declined instead of answering from thin context. Web-search fallback is off by
 default so `abstain` stays honest.
 
-**Judge & cost.** Both use Opus 5 as the LLM judge (`JUDGE_MODEL`). Spend is
-metered per call and the run aborts with a partial report once it passes
-`EVAL_MAX_USD` (default $5). A full Ragas pass runs roughly $3–4 with the
-default split, more with `--all-opus` / `--strict`; the custom harness is well
-under $1. Use `--category` / `--limit` while iterating.
+**Judge & cost.** Opus 5 for the nuanced calls (`JUDGE_MODEL`), Sonnet 5 for
+the rest (`JUDGE_FAST_MODEL`). Spend is metered per call and the run aborts with
+a partial report once it passes `EVAL_MAX_USD` (default $5). A full Ragas pass
+runs roughly $3–4 with the default split (more with `--all-opus` / `--strict`);
+the custom harness is well under $1. Use `--category` / `--limit` while iterating.
 
 ## Deployment
 

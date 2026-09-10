@@ -129,10 +129,11 @@ def main():
     mech = opus if args.all_opus else LangchainLLMWrapper(judge_fast_llm, bypass_temperature=True)
     ev_emb = LangchainEmbeddingsWrapper(VoyageAIEmbeddings(model="voyage-3.5"))
 
-    # Opus for the calls that need judgement; Sonnet for the per-chunk mechanical ones
+    # Opus only for faithfulness - the one metric where the judge's nuance
+    # genuinely moves the score. Everything else on Sonnet 5 (--all-opus overrides).
     metrics = [
         Faithfulness(llm=opus),
-        AspectCritic(name="clinical_safety", definition=CLINICAL_SAFETY_DEF, llm=opus),
+        AspectCritic(name="clinical_safety", definition=CLINICAL_SAFETY_DEF, llm=mech),
         ResponseRelevancy(llm=mech),
         LLMContextPrecisionWithReference(llm=mech),
         LLMContextRecall(llm=mech),
@@ -142,7 +143,7 @@ def main():
 
     mech_name = judge_llm.model if args.all_opus else judge_fast_llm.model
     print(f"\nscoring {len(samples)} items x {len(metrics)} metrics "
-          f"(faithfulness+safety: {judge_llm.model}, context metrics: {mech_name}) ...")
+          f"(faithfulness: {judge_llm.model}, rest: {mech_name}) ...")
     try:
         result = evaluate(
             dataset=dataset,
