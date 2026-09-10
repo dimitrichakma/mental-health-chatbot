@@ -35,13 +35,12 @@ SKIP_RELATIONS = [
 # data) are dropped.
 load_query = """
 LOAD CSV WITH HEADERS FROM $csv_url AS row
-CALL {
-    WITH row
+CALL (row) {
     WITH row
     WHERE NOT row.origin IN $skip_origins AND NOT row.relation IN $skip_relations
     WITH row,
-         apoc.text.replace(trim(row.source), ' +', ' ') AS s_raw,
-         apoc.text.replace(trim(row.target), ' +', ' ') AS t_raw
+         string.regexReplace(trim(row.source), ' +', ' ') AS s_raw,
+         string.regexReplace(trim(row.target), ' +', ' ') AS t_raw
     WITH row,
          coalesce($aliases[toLower(s_raw)], s_raw) AS s_name,
          coalesce($aliases[toLower(t_raw)], t_raw) AS t_name
@@ -54,9 +53,11 @@ CALL {
     MERGE (b:Entity {name: t_name})
     MERGE (a)-[r:RELATION {type: row.relation, origin: row.origin}]->(b)
     WITH a, b, row
-    CALL apoc.create.addLabels(a, [apoc.text.capitalize(replace(replace(row.source_type, ' ', '_'), '-', '_'))]) YIELD node AS n1
-    CALL apoc.create.addLabels(b, [apoc.text.capitalize(replace(replace(row.target_type, ' ', '_'), '-', '_'))]) YIELD node AS n2
-    RETURN n1, n2
+    // native dynamic labels (SET n:$(...)) instead of the deprecated
+    // apoc.create.addLabels procedure
+    SET a:$(apoc.text.capitalize(replace(replace(row.source_type, ' ', '_'), '-', '_'))),
+        b:$(apoc.text.capitalize(replace(replace(row.target_type, ' ', '_'), '-', '_')))
+    RETURN a, b
 } IN TRANSACTIONS OF 1000 ROWS
 RETURN count(*) AS rows_loaded
 """
