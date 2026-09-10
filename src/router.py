@@ -1,3 +1,4 @@
+import contextvars
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional, Literal
 
@@ -7,6 +8,14 @@ from .retrieval import naive_rag_retrieve, graph_rag_retrieve, retrieve_both
 from .grading import grade_relevance
 from .llm import fast_llm
 from .web_search_fallback import web_search_and_ingest
+
+
+def _submit(pool, fn, *args):
+    """pool.submit that carries the current context into the worker thread, so
+    LangChain/LangSmith keeps the LLM calls nested under the same trace instead
+    of orphaning them as separate roots."""
+    ctx = contextvars.copy_context()
+    return pool.submit(ctx.run, fn, *args)
 
 
 class RouteDecision(BaseModel):
@@ -53,8 +62,8 @@ def route_question(question):
     # needing it, so speculating it in parallel with the classifier call saves a
     # serial hop in the common case.
     with ThreadPoolExecutor(max_workers=2) as pool:
-        f_class = pool.submit(classify_and_extract, question)
-        f_vec = pool.submit(naive_rag_retrieve, question)
+        f_class = _submit(pool, classify_and_extract, question)
+        f_vec = _submit(pool, naive_rag_retrieve, question)
         path, entity = f_class.result()
         vector_context = f_vec.result()
 
@@ -119,4 +128,5 @@ def route_all(subquestions):
     if len(subquestions) <= 1:
         return [route_with_correction(sq) for sq in subquestions]
     with ThreadPoolExecutor(max_workers=len(subquestions)) as pool:
-        return list(pool.map(route_with_correction, subquestions))
+        futures = [_submit(pool, route_with_correction, sq) for sq in subquestions]
+        return [f.result() for f in futures]
