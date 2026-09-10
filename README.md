@@ -109,6 +109,32 @@ python review_logs.py --csv out.csv
 
 or ad-hoc SQL via `railway connect Postgres` + `review_logs.sql`.
 
+## Cost & rate controls
+
+`src/llm.py` is the single control point for every Claude call:
+
+- **Rate limiting** — one shared client-side limiter paces all outbound calls
+  (`ANTHROPIC_RPS`, default 2/s) so parallel sub-question routing doesn't trip
+  429s. The backend also caps `POST /chat` per client IP (`CHAT_RATE_LIMIT`,
+  default `20/minute`, via `slowapi`).
+- **Response caching** — an exact-match cache on `(prompt, model+params)`:
+  Postgres (`llm_cache` table) when `DATABASE_URL` is set, in-process otherwise,
+  off with `LLM_CACHE=0`. Repeated classifier calls (example-question buttons,
+  similar tester questions) and eval re-runs on unchanged items become free. It
+  does **not** help answer synthesis — the retrieved context is unique per call.
+- **Daily budget** — every `/chat` measures its own token cost (per-request
+  `UsageTracker`) and rolls it into a `daily_usage` row. Once a UTC day passes
+  `DAILY_BUDGET_USD` (default $5) the backend returns 503 with a friendly
+  message. `GET /usage` reports the day's spend. Per-request cost is also stored
+  on each `conversation_log` row.
+- **Eval guard** — the Opus judge carries a hard process ceiling
+  (`EVAL_MAX_USD`, default $5); a run aborts with a partial report if it trips.
+- **`max_tokens`** is set on every model so one runaway generation can't blow up
+  a bill.
+
+Prompt caching (Anthropic's native `cache_control`) isn't used: it needs
+≥1024-token cacheable prefixes and this app's prompts are short.
+
 Library use / eval:
 
 ```python

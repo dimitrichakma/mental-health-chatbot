@@ -35,7 +35,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from src import router
-from src.eval_budget import COST_TRACKER, BudgetExceeded
+from src.usage import EVAL_USAGE as COST_TRACKER, BudgetExceeded
 from src.llm import judge_llm
 from src.planner import run_pipeline
 

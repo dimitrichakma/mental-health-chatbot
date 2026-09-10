@@ -82,8 +82,12 @@ else:
 
 agent = graph.compile(checkpointer=checkpointer)
 
-def run_agent(question, thread_id="default"):
+def run_agent(question, thread_id="default", callbacks=None):
     config = {"configurable": {"thread_id": thread_id}}
+    if callbacks:
+        # LangGraph propagates these to every node's LLM call - lets the backend
+        # meter one request's token cost with a per-request UsageTracker
+        config["callbacks"] = callbacks
     result = agent.invoke({"question": question}, config=config)
     if result["safety_response"] is not None:
         return {"answer": result["safety_response"], "results": []}

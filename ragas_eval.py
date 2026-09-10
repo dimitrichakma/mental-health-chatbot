@@ -53,7 +53,7 @@ from ragas.metrics import (  # noqa: E402
 from ragas.run_config import RunConfig  # noqa: E402
 
 from src import router  # noqa: E402
-from src.eval_budget import COST_TRACKER, BudgetExceeded  # noqa: E402
+from src.usage import EVAL_USAGE as COST_TRACKER, BudgetExceeded  # noqa: E402
 from src.llm import judge_fast_llm, judge_llm  # noqa: E402
 from src.planner import run_pipeline  # noqa: E402
 
