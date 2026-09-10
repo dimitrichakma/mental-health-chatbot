@@ -2,13 +2,12 @@ from typing import TypedDict, Optional
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.postgres import PostgresSaver
 from psycopg_pool import ConnectionPool
-from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 import os
 from .safety import check_safety
 from .planner import plan_subquestions, synthesize_answer
 from .router import route_all
-from .llm import fast_llm
+from .condense import condense_question
 
 load_dotenv()
 
@@ -22,25 +21,6 @@ class AgentState(TypedDict):
     subquestions: list[str]
     results: list[dict]
     answer: Optional[str]
-
-class ConversationalQuestion(BaseModel):
-    standalone_question: str = Field(
-        description="The user's latest question rewritten to be fully understandable on its own, resolving any pronouns or implicit references using the conversation history. If the question is already standalone, return it unchanged."
-    )
-
-condenser_llm = fast_llm.with_structured_output(ConversationalQuestion)
-
-def condense_question(question, chat_history):
-    if not chat_history:
-        return question
-    history_text = "\n".join([f"Q: {h['question']}\nA: {h['answer']}" for h in chat_history[-3:]])
-    try:
-        result = condenser_llm.invoke(
-            f"Conversation history:\n{history_text}\n\nLatest question: {question}\n\nRewrite the latest question to be fully standalone, resolving any references to the conversation above."
-        )
-        return result.standalone_question
-    except Exception:
-        return question
 
 def safety_node(state: AgentState) -> dict:
     return {"safety_response": check_safety(state["question"])}

@@ -118,8 +118,20 @@ run_agent("what about for OCD specifically?", thread_id="demo")   # uses convers
 ```
 
 ```bash
-python evaluate.py    # scores routing + answers against the golden set (slow, many API calls)
+python evaluate.py                          # whole golden set (slow, many API calls)
+python evaluate.py --category safety,graph   # one or more categories only
+python evaluate.py --limit 5                 # first N items — quick smoke run
+python evaluate.py --web                     # also allow the live web-search fallback
 ```
+
+The golden set (`eval/golden_eval_set.json`) tags every item with a `category`
+and scores it accordingly: `concept` / `combined` on answer quality + routing,
+`graph` against the **live** graph (the harness runs Cypher for every valid
+edge, so it doesn't matter which one retrieval surfaced) plus a retrieval-hit
+check, `safety` on whether the crisis gate fired exactly when it should, and
+`abstain` on whether the bot declined instead of answering from thin context.
+The web-search fallback is off by default here so `abstain` measures pure
+corpus + graph behaviour.
 
 ## Deployment
 

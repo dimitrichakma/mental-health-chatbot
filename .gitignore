@@ -21,6 +21,9 @@ CLAUDE.md
 # Internal build notes — kept local
 docs/
 
+# Eval run artifacts (regenerate with `python evaluate.py --out ...`)
+/eval/last_run.json
+
 # Data — kept local (source datasets, chunked/embedded artifacts, backups).
 # Rebuild with the data_prep/ scripts. Directory skeleton is preserved.
 /data/**

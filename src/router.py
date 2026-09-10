@@ -28,6 +28,16 @@ class RouteDecision(BaseModel):
 
 router_llm = fast_llm.with_structured_output(RouteDecision)
 
+# The live web-search fallback fires when neither the graph nor the vector store
+# has a good answer. Eval runs turn it off (set_web_fallback(False)) so the
+# "abstain" test cases measure pure corpus+graph behaviour instead of whatever
+# the open web happens to return that day.
+_web_fallback_enabled = True
+
+def set_web_fallback(enabled: bool):
+    global _web_fallback_enabled
+    _web_fallback_enabled = enabled
+
 def classify_and_extract(question):
     try:
         result = router_llm.invoke(
@@ -77,9 +87,10 @@ def route_with_correction(question):
         # answer. web_search_and_ingest does its own worthiness check on the
         # results before chunking/embedding, so a non-empty return is already
         # vetted, no need to re-grade it here.
-        web_context = web_search_and_ingest(question)
-        if web_context:
-            return {"path": "web_fallback", "context": web_context, "entity": result["entity"], "corrected": True}
+        if _web_fallback_enabled:
+            web_context = web_search_and_ingest(question)
+            if web_context:
+                return {"path": "web_fallback", "context": web_context, "entity": result["entity"], "corrected": True}
 
         # nothing anywhere actually answers this. return an empty context and
         # mark the path so the synthesizer says it doesn't know, rather than

@@ -2,6 +2,8 @@ from pydantic import BaseModel, Field
 
 from .llm import fast_llm, smart_llm
 from .router import route_all
+from .condense import condense_question
+from .safety import check_safety
 
 class SubquestionList(BaseModel):
     subquestions: list[str] = Field(
@@ -43,8 +45,19 @@ Context: {context_text}"""
     )
     return response.content
 
-def run_pipeline(question):
-    subquestions = plan_subquestions(question)
+def run_pipeline(question, chat_history=None):
+    """Full retrieval pipeline, minus the LangGraph/Postgres wrapper in agent.py.
+
+    Mirrors the agent's node sequence: safety gate -> condense -> plan ->
+    route/retrieve -> synthesize. Used by the offline eval and any non-stateful
+    caller. On a crisis it short-circuits exactly like the agent does.
+    """
+    crisis = check_safety(question)
+    if crisis:
+        return {"answer": crisis, "results": [], "crisis": True, "standalone_question": question}
+
+    standalone = condense_question(question, chat_history) if chat_history else question
+    subquestions = plan_subquestions(standalone)
     results = route_all(subquestions)
-    answer = synthesize_answer(question, results)
-    return {"answer": answer, "results": results}
+    answer = synthesize_answer(standalone, results)
+    return {"answer": answer, "results": results, "crisis": False, "standalone_question": standalone}
