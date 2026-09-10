@@ -29,8 +29,14 @@ MODEL_PRICING = {
 DEFAULT_MAX_USD = 5.0
 
 
-class BudgetExceeded(RuntimeError):
-    """Raised mid-run once accumulated judge spend passes the ceiling."""
+class BudgetExceeded(BaseException):
+    """Raised mid-run once accumulated judge spend passes the ceiling.
+
+    Subclasses BaseException (not Exception) on purpose: Ragas wraps metric
+    jobs in tenacity retry-on-Exception and in a catch-all, so a plain
+    Exception here would be retried 10x and then swallowed. BaseException
+    slips past both and aborts the run immediately.
+    """
 
 
 def _price(model_id):

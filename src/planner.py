@@ -60,4 +60,25 @@ def run_pipeline(question, chat_history=None):
     subquestions = plan_subquestions(standalone)
     results = route_all(subquestions)
     answer = synthesize_answer(standalone, results)
-    return {"answer": answer, "results": results, "crisis": False, "standalone_question": standalone}
+    return {
+        "answer": answer,
+        "results": results,
+        "crisis": False,
+        "standalone_question": standalone,
+        # flat list of every retrieved chunk/triple as a string - what Ragas
+        # (and any other doc-level eval) consumes as `retrieved_contexts`
+        "retrieved_contexts": _flatten_contexts(results),
+    }
+
+
+def _flatten_contexts(results):
+    chunks = []
+    for r in results:
+        ctx = r.get("context")
+        if not ctx:
+            continue
+        if isinstance(ctx, str):
+            chunks.append(ctx)
+        else:  # list of chunks / triples
+            chunks.extend(str(c) for c in ctx if c)
+    return chunks

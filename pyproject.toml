@@ -27,6 +27,9 @@ dependencies = [
 [dependency-groups]
 frontend = ["streamlit>=1.63.0", "requests>=2.34.2"]
 dataprep = ["pandas>=3.0.5", "langchain-experimental>=0.4.2"]
+# offline evaluation only (ragas_eval.py). Heavy transitive tree - kept out of
+# default-groups so the deployed image never sees it.
+eval = ["ragas>=0.4.3", "langchain-voyageai>=0.1.6"]
 
 [tool.uv]
 package = false

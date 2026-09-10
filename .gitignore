@@ -21,8 +21,10 @@ CLAUDE.md
 # Internal build notes — kept local
 docs/
 
-# Eval run artifacts (regenerate with `python evaluate.py --out ...`)
+# Eval run artifacts (regenerate with `python evaluate.py` / `python ragas_eval.py`)
 /eval/last_run.json
+/eval/ragas_run.csv
+/eval/ragas_smoke.csv
 
 # Data — kept local (source datasets, chunked/embedded artifacts, backups).
 # Rebuild with the data_prep/ scripts. Directory skeleton is preserved.

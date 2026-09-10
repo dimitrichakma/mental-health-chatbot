@@ -45,3 +45,16 @@ judge_llm = ChatAnthropic(
     thinking=_judge_thinking,
     callbacks=[COST_TRACKER],
 )
+
+# Eval-only second judge for the mechanical Ragas metrics (context precision /
+# recall / answer relevancy) - these make one call per retrieved chunk, so
+# running them on Opus is most of the bill for little quality gain. Sonnet 5,
+# thinking off, metered against the same budget. Not used on the request path.
+JUDGE_FAST_MODEL = os.getenv("JUDGE_FAST_MODEL", "claude-sonnet-5")
+judge_fast_llm = ChatAnthropic(
+    model=JUDGE_FAST_MODEL,
+    timeout=90,
+    max_tokens=4096,
+    thinking={"type": "disabled"},
+    callbacks=[COST_TRACKER],
+)

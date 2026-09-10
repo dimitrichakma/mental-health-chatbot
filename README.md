@@ -117,27 +117,51 @@ run_agent("what is exposure and response prevention?", thread_id="demo")
 run_agent("what about for OCD specifically?", thread_id="demo")   # uses conversation memory
 ```
 
+Evaluation has two layers. Install the eval deps first: `uv sync --group eval`.
+
+**Primary — Ragas RAG metrics** (`ragas_eval.py`), the industry-standard layer:
+
 ```bash
-python evaluate.py                          # whole golden set (slow, many API calls)
+python ragas_eval.py                     # concept / graph / combined / memory items
+python ragas_eval.py --category graph
+python ragas_eval.py --limit 5           # quick smoke
+python ragas_eval.py --all-opus          # every metric on Opus (pricier)
+python ragas_eval.py --strict            # + factual_correctness (recall)
+```
+
+Metrics: `faithfulness` and a custom `clinical_safety` critic on **Opus 5**;
+`answer_relevancy`, `llm_context_precision`, `context_recall` on Sonnet 5 (they
+make one call per retrieved chunk — Opus there is most of the bill for little
+gain). Per-item scores land in `eval/ragas_run.csv`.
+
+**Companion — custom harness** (`evaluate.py`) for what Ragas can't score:
+
+```bash
+python evaluate.py                          # whole golden set
 python evaluate.py --category safety,graph   # one or more categories only
-python evaluate.py --limit 5                 # first N items — quick smoke run
+python evaluate.py --limit 5                 # quick smoke
 python evaluate.py --web                     # also allow the live web-search fallback
 ```
 
-The golden set (`eval/golden_eval_set.json`) tags every item with a `category`
-and scores it accordingly: `concept` / `combined` on answer quality + routing,
-`graph` against the **live** graph (the harness runs Cypher for every valid
-edge, so it doesn't matter which one retrieval surfaced) plus a retrieval-hit
-check, `safety` on whether the crisis gate fired exactly when it should, and
-`abstain` on whether the bot declined instead of answering from thin context.
-The web-search fallback is off by default here so `abstain` measures pure
-corpus + graph behaviour.
+The golden set (`eval/golden_eval_set.json`) tags every item with a `category`.
+`evaluate.py` scores `concept` / `combined` on answer quality + routing, `graph`
+against the **live** graph (Cypher for every valid edge, so it doesn't matter
+which one retrieval surfaced) plus a retrieval-hit check, `safety` on whether the
+crisis gate fired exactly when it should, and `abstain` on whether the bot
+declined instead of answering from thin context. Web-search fallback is off by
+default so `abstain` stays honest.
+
+**Judge & cost.** Both use Opus 5 as the LLM judge (`JUDGE_MODEL`). Spend is
+metered per call and the run aborts with a partial report once it passes
+`EVAL_MAX_USD` (default $5). A full Ragas pass runs roughly $3–4 with the
+default split, more with `--all-opus` / `--strict`; the custom harness is well
+under $1. Use `--category` / `--limit` while iterating.
 
 ## Deployment
 
 - **Backend** → Railway (`Dockerfile`, backend deps only) + Railway Postgres.
-  `railway.toml` sets the Docker builder, a `/health` check, and `watchPatterns`
-  so only backend-relevant pushes rebuild. Auto-deploys from `main`.
+  `railway.toml` sets the Docker builder and a `/health` check. Auto-deploys
+  from `main`.
 - **Frontend** → Streamlit Community Cloud (`frontend/frontend.py`,
   `frontend/requirements.txt`). `BACKEND_URL` is set in the app's Secrets.
   Auto-deploys from `main`.
