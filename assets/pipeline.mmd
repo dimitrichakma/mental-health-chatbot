@@ -1,0 +1,27 @@
+flowchart TD
+    Q([user question]) --> SAFE{{safety<br/>LLM crisis check}}
+    SAFE -->|high risk| CRISIS[crisis response]:::stop
+    SAFE -->|ok| COND[condense<br/>rewrite as standalone question<br/>using chat history]
+    COND --> PLAN[plan<br/>split into 1–3 sub-questions]
+    PLAN --> RET
+
+    subgraph RET [retrieve · runs per sub-question]
+        direction TB
+        CLS[router: classify path<br/>graph_rag / naive_rag / both<br/>+ extract entity] --> R1[graph traversal<br/>and / or vector search]
+        R1 --> GR1{relevance<br/>grader}
+        GR1 -->|correct| KEEP[keep context]:::ok
+        GR1 -->|weak| ALT[try the other path]
+        ALT --> GR2{relevance<br/>grader}
+        GR2 -->|correct| KEEP
+        GR2 -->|weak| WEB[web search<br/>vet → chunk → embed → Pinecone]
+        WEB --> GR3{relevance<br/>grader}
+        GR3 -->|correct| KEEP
+        GR3 -->|off-topic| NA[no_answer]:::stop
+    end
+
+    RET --> SYN[synthesize<br/>answer from retrieved context only<br/>· cites graph vs. text · refuses to guess]
+    SYN --> A([answer + sources])
+    CRISIS --> A
+
+    classDef stop fill:#fde2e2,stroke:#e57373,color:#7a1f1f;
+    classDef ok fill:#e2f5e9,stroke:#66bb6a,color:#1b5e20;
