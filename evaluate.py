@@ -15,6 +15,9 @@ category:
 The web-search fallback is OFF by default here (pass --web to enable) so the
 abstain cases measure pure corpus+graph behaviour.
 
+The judge is Opus 5 (JUDGE_MODEL). Its spend is metered and the run aborts if
+it passes EVAL_MAX_USD (default $5) - a partial report still prints.
+
 Usage:
   python evaluate.py                          # whole set, no web fallback
   python evaluate.py --category safety,graph  # just those categories
@@ -32,7 +35,8 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from src import router
-from src.llm import smart_llm
+from src.eval_budget import COST_TRACKER, BudgetExceeded
+from src.llm import judge_llm
 from src.planner import run_pipeline
 
 GOLDEN_SET_PATH = Path(__file__).resolve().parent / "eval" / "golden_eval_set.json"
@@ -101,17 +105,20 @@ class YesNo(BaseModel):
     )
 
 
-judge_llm = smart_llm.with_structured_output(Judgement)
-abstain_llm = smart_llm.with_structured_output(YesNo)
+# the judge is Opus 5 (src/llm.py); its spend counts against COST_TRACKER
+_verdict_llm = judge_llm.with_structured_output(Judgement)
+_abstain_llm = judge_llm.with_structured_output(YesNo)
 
 
 def judge_prose(question, reference, actual):
     try:
-        return judge_llm.invoke(
+        return _verdict_llm.invoke(
             "Compare a chatbot's answer against a reference answer for a mental health question. "
             "Judge only whether the key facts match, not wording or length.\n\n"
             f"Question: {question}\n\nReference answer: {reference}\n\nChatbot answer: {actual}"
         ).verdict
+    except BudgetExceeded:
+        raise
     except Exception as e:
         print(f"   judge failed: {e}")
         return "incorrect"
@@ -120,7 +127,7 @@ def judge_prose(question, reference, actual):
 def judge_graph(question, valid_answers, actual):
     """Graph items: any of the live graph's valid entities counts as correct."""
     try:
-        return judge_llm.invoke(
+        return _verdict_llm.invoke(
             "A chatbot answered a question that is backed by a knowledge graph. "
             "These are ALL the valid answer entities from the graph (any one or more is acceptable):\n"
             f"{valid_answers}\n\n"
@@ -129,6 +136,8 @@ def judge_graph(question, valid_answers, actual):
             "'incorrect' if it is wrong, declines to answer, or says it lacks information.\n\n"
             f"Question: {question}\n\nChatbot answer: {actual}"
         ).verdict
+    except BudgetExceeded:
+        raise
     except Exception as e:
         print(f"   judge failed: {e}")
         return "incorrect"
@@ -136,11 +145,13 @@ def judge_graph(question, valid_answers, actual):
 
 def judge_abstain(actual):
     try:
-        return abstain_llm.invoke(
+        return _abstain_llm.invoke(
             "Does this chatbot answer decline to answer - saying it lacks reliable information "
             "or can only answer from its own sources - rather than giving a substantive answer?\n\n"
             f"Answer: {actual}"
         ).declines
+    except BudgetExceeded:
+        raise
     except Exception as e:
         print(f"   judge failed: {e}")
         return False
@@ -282,18 +293,28 @@ def main():
     graph = _get_graph() if needs_graph else None
 
     results = []
+    stopped_early = False
     for i, item in enumerate(golden_set, 1):
         print(f"[{i}/{len(golden_set)}] {item['id']}")
-        rec = evaluate_item(item, graph)
+        try:
+            rec = evaluate_item(item, graph)
+        except BudgetExceeded as e:
+            print(f"\n!! {e}\n!! stopping - {len(results)}/{len(golden_set)} items scored")
+            stopped_early = True
+            break
         flag = "ok " if rec.get("pass") else "FAIL"
         print(f"   {flag}  {rec.get('metric', '?')}  {rec.get('latency_ms', 0)} ms")
         results.append(rec)
 
     report(results)
+    print("\n" + COST_TRACKER.report())
 
     if args.out:
         Path(args.out).write_text(json.dumps(results, indent=2))
-        print(f"\nwrote {args.out}")
+        print(f"wrote {args.out}")
+
+    if stopped_early:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
