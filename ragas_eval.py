@@ -40,6 +40,7 @@ sys.modules.setdefault("langchain_community.chat_models.vertexai", _stub)
 
 from langchain_voyageai import VoyageAIEmbeddings  # noqa: E402
 from ragas import EvaluationDataset, evaluate  # noqa: E402
+from ragas.cache import DiskCacheBackend  # noqa: E402
 from ragas.embeddings import LangchainEmbeddingsWrapper  # noqa: E402
 from ragas.llms.base import LangchainLLMWrapper  # noqa: E402
 from ragas.metrics import (  # noqa: E402
@@ -123,6 +124,9 @@ def main():
     ap.add_argument("--reuse", action="store_true",
                     help="reuse cached pipeline outputs (eval/ragas_samples.json) instead of "
                          "re-running the pipeline - for iterating on metrics/judge config")
+    ap.add_argument("--no-cache", action="store_true",
+                    help="bypass the on-disk judge cache (eval/.ragas_cache) - forces every "
+                         "metric call to hit the API")
     ap.add_argument("--out", default="eval/ragas_run.csv", help="per-item CSV output path")
     args = ap.parse_args()
 
@@ -142,9 +146,16 @@ def main():
     cats = [s.pop("_category") for s in samples]
     dataset = EvaluationDataset.from_list(samples)
 
+    # On-disk cache of every judge call, keyed by the exact prompt. Makes a
+    # re-run (same answers, same metrics) free, and dedups repeats within a run.
+    # This is why prompt caching isn't wired for eval - the whole call is cached,
+    # not just a prefix.
+    cache = None if args.no_cache else DiskCacheBackend(cache_dir="eval/.ragas_cache")
+
     # bypass_temperature: Opus 5 / Sonnet 5 reject the `temperature` param Ragas sets
-    opus = LangchainLLMWrapper(judge_llm, bypass_temperature=True)
-    mech = opus if args.all_opus else LangchainLLMWrapper(judge_fast_llm, bypass_temperature=True)
+    opus = LangchainLLMWrapper(judge_llm, bypass_temperature=True, cache=cache)
+    mech = (opus if args.all_opus
+            else LangchainLLMWrapper(judge_fast_llm, bypass_temperature=True, cache=cache))
     ev_emb = LangchainEmbeddingsWrapper(VoyageAIEmbeddings(model="voyage-3.5"))
 
     # Opus for faithfulness (nuance moves the score). answer_relevancy /

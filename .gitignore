@@ -32,3 +32,4 @@ docs/
 /data/**
 !/data/**/
 !/data/**/.gitkeep
+/eval/.ragas_cache/
