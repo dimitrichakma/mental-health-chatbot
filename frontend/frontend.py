@@ -223,7 +223,7 @@ if len(st.session_state.messages) == 0 and st.session_state.pending is None:
     st.info("Pick an example from the sidebar, or type a question below to start.", icon="💬")
 
 # --- input (typed, or an example button from the sidebar) ---
-typed = st.chat_input("Ask something about mental health or CBT...")
+typed = st.chat_input("Ask something about mental health or CBT...", max_chars=2000)
 question = typed or st.session_state.pending
 st.session_state.pending = None
 

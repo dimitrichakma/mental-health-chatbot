@@ -115,7 +115,9 @@ def _log_conversation(thread_id, question, answer, paths_used, is_crisis, latenc
 
 
 class ChatRequest(BaseModel):
-    question: str = Field(min_length=1, max_length=4000)
+    # 2000 chars is ample for an educational question and limits both cost and
+    # the room a prompt-injection payload has to work with.
+    question: str = Field(min_length=1, max_length=2000)
     thread_id: str | None = None
     country: str | None = Field(default=None, max_length=2)  # 2-letter code for crisis resources
 
