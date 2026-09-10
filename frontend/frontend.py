@@ -4,7 +4,17 @@ import uuid
 import requests
 import streamlit as st
 
-BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
+
+def _backend_url():
+    # Streamlit Community Cloud: set BACKEND_URL in the app's Secrets.
+    # Local: env var, or defaults to a locally-running backend.
+    try:
+        return st.secrets["BACKEND_URL"]
+    except Exception:
+        return os.getenv("BACKEND_URL", "http://localhost:8000")
+
+
+BACKEND_URL = _backend_url()
 
 USER_AVATAR = "🧑"
 BOT_AVATAR = "🌿"
