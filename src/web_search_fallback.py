@@ -3,11 +3,11 @@ import os
 
 import voyageai
 from dotenv import load_dotenv
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pinecone import Pinecone
 from tavily import TavilyClient
 
 from .grading import grade_relevance
-from .semantic_chunk import semantic_chunk
 
 load_dotenv()
 
@@ -15,6 +15,10 @@ tavily_client = TavilyClient(api_key=os.environ["TAVILY_API_KEY"])
 pc = Pinecone(api_key=os.environ["PINECONE_API_KEY"])
 index = pc.Index("cbt-mental-health")
 vo = voyageai.Client(api_key=os.environ["VOYAGE_API_KEY"])
+
+# Tavily returns short pre-extracted snippets, so a plain recursive splitter is
+# plenty here - and it keeps torch / sentence-transformers out of the deploy.
+_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
 
 
 def _stable_id(text):
@@ -30,7 +34,7 @@ def web_search_and_ingest(question, max_results=3):
     Pipeline stage (not an LLM tool):
         1. search the web
         2. worthiness check - does what came back actually answer the question?
-        3. only if worthy: semantic chunk
+        3. only if worthy: chunk
         4. embed + upsert into Pinecone (best-effort, for future questions)
         5. return the chunk texts for use on THIS turn
 
@@ -60,9 +64,9 @@ def web_search_and_ingest(question, max_results=3):
     # step 3 - now chunk the vetted results
     new_chunks = []
     for result in results:
-        for piece in semantic_chunk(result["content"]):
+        for piece in _splitter.split_text(result["content"]):
             if not piece.strip():
-                continue  # semantic_chunk can emit empty pieces; Voyage rejects them
+                continue
             new_chunks.append({
                 "source_title": result.get("title", "web_result"),
                 "section": "web_fallback",

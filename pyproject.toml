@@ -4,31 +4,30 @@ version = "0.1.0"
 description = "A CBT / mental-health chatbot with hybrid graph + vector retrieval, a corrective-retrieval router, LangGraph agent, and a live web-search fallback."
 readme = "README.md"
 requires-python = ">=3.13"
+
+# backend runtime only — this is what the deployed image installs
 dependencies = [
-    # web
     "fastapi>=0.141.1",
     "uvicorn>=0.52.4",
-    "streamlit>=1.63.0",
-    "requests>=2.34.2",
-    # agent + LLM
     "langgraph>=1.2.11",
     "langgraph-checkpoint-postgres>=3.1.2",
     "langchain-anthropic>=1.7.1",
     "langchain-core>=1.6.2",
-    "pydantic>=2.13.5",
-    # retrieval
     "langchain-neo4j>=0.10.0",
+    "langchain-text-splitters>=1.1.2",
+    "pydantic>=2.13.5",
     "pinecone>=10.0.0",
     "voyageai>=0.5.0",
     "tavily-python>=0.8.1",
-    # chunking
-    "langchain-experimental>=0.4.2",
-    "langchain-huggingface>=1.2.2",
-    "langchain-text-splitters>=1.1.2",
-    "sentence-transformers>=6.0.1",
-    # data prep + memory store
-    "pandas>=3.0.5",
     "psycopg[binary]>=3.3.5",
     "psycopg-pool>=3.3.1",
     "python-dotenv>=1.2.3",
 ]
+
+[dependency-groups]
+frontend = ["streamlit>=1.63.0", "requests>=2.34.2"]
+dataprep = ["pandas>=3.0.5", "langchain-experimental>=0.4.2"]
+
+[tool.uv]
+package = false
+default-groups = ["frontend", "dataprep"]

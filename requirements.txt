@@ -1,32 +1,28 @@
-# Direct dependencies. For an exact, fully-pinned install use `uv sync` (uv.lock).
+# Direct dependencies (all components). For an exact pinned install use
+# `uv sync` (uv.lock). The deployed backend installs only the [project]
+# dependencies below — see pyproject.toml groups.
 
-# web
+# --- backend runtime ---
 fastapi>=0.141.1
 uvicorn>=0.52.4
-streamlit>=1.63.0
-requests>=2.34.2
-
-# agent + LLM
 langgraph>=1.2.11
 langgraph-checkpoint-postgres>=3.1.2
 langchain-anthropic>=1.7.1
 langchain-core>=1.6.2
-pydantic>=2.13.5
-
-# retrieval
 langchain-neo4j>=0.10.0
+langchain-text-splitters>=1.1.2
+pydantic>=2.13.5
 pinecone>=10.0.0
 voyageai>=0.5.0
 tavily-python>=0.8.1
-
-# chunking
-langchain-experimental>=0.4.2
-langchain-huggingface>=1.2.2
-langchain-text-splitters>=1.1.2
-sentence-transformers>=6.0.1
-
-# data prep + memory store
-pandas>=3.0.5
 psycopg[binary]>=3.3.5
 psycopg-pool>=3.3.1
 python-dotenv>=1.2.3
+
+# --- frontend (Streamlit UI) ---
+streamlit>=1.63.0
+requests>=2.34.2
+
+# --- data prep (build scripts only) ---
+pandas>=3.0.5
+langchain-experimental>=0.4.2

@@ -44,13 +44,15 @@ synthesize ► answer from retrieved context only; refuses to guess
 
 ```
 src/                 runtime package (agent, router, planner, retrieval,
-                     grading, safety, web_search_fallback, semantic_chunk)
+                     grading, safety, web_search_fallback)
+backend/backend.py   FastAPI: POST /chat, GET /health
+frontend/frontend.py Streamlit chat UI
 data_prep/           one-off build scripts (chunk, embed, load graph)
 data/                source datasets + generated artifacts — NOT in the repo,
                      rebuild with data_prep/ (see below)
 eval/                golden_eval_set.json  (+ evaluate.py at repo root)
-backend/  frontend/  placeholders — FastAPI endpoint and Streamlit UI (TODO)
 docs/                BUILD_GUIDE.md, FIXES.md
+Dockerfile           builds the backend image (backend deps only)
 ```
 
 ## Setup
@@ -97,6 +99,25 @@ run_agent("what about for OCD specifically?", thread_id="demo")   # uses convers
 ```bash
 python evaluate.py    # scores routing + answers against the golden set (slow, many API calls)
 ```
+
+## Deploy the backend (Railway)
+
+The `Dockerfile` installs backend deps only (`[project.dependencies]`, no
+Streamlit/pandas/torch). `railway.toml` sets the Docker builder and a `/health`
+check.
+
+```bash
+railway init
+railway add --database postgres          # injects DATABASE_URL
+railway variables --set ANTHROPIC_API_KEY=... --set VOYAGE_API_KEY=... \
+  --set PINECONE_API_KEY=... --set NEO4J_URI=... --set NEO4J_USERNAME=... \
+  --set NEO4J_PASSWORD=... --set TAVILY_API_KEY=...
+railway up
+railway domain
+```
+
+Then point the frontend at it: `BACKEND_URL=https://<domain> streamlit run frontend/frontend.py`,
+and add that frontend origin to `ALLOWED_ORIGINS` in `backend/backend.py`.
 
 ## Status
 
