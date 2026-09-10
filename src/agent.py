@@ -34,12 +34,18 @@ def safety_node(state: AgentState) -> dict:
     kind, response = screen_message(state["question"], state.get("country"))
     return {"block_kind": kind, "block_response": response}
 
-def route_after_safety(state: AgentState) -> str:
-    return "end_early" if state.get("block_kind") else "continue"
-
 def prepare_node(state: AgentState) -> dict:
     standalone, subs = prepare_query(state["question"], state.get("chat_history", []))
     return {"standalone_question": standalone, "subquestions": subs}
+
+def gate_node(state: AgentState) -> dict:
+    # no-op join point: waits for safety and prepare (which run in parallel),
+    # then routes. prepare's ~1s call is wasted on a blocked message, but that's
+    # rare and worth it to overlap it with the safety call every other time.
+    return {}
+
+def route_after_safety(state: AgentState) -> str:
+    return "end_early" if state.get("block_kind") else "continue"
 
 def retrieve_node(state: AgentState) -> dict:
     return {"results": route_all(state["subquestions"])}
@@ -69,15 +75,20 @@ def synthesize_node(state: AgentState) -> dict:
 graph = StateGraph(AgentState)
 graph.add_node("safety", safety_node)
 graph.add_node("prepare", prepare_node)
+graph.add_node("gate", gate_node)
 graph.add_node("retrieve", retrieve_node)
 graph.add_node("synthesize", synthesize_node)
 
+# safety and prepare both act on the raw question and are independent - run them
+# in parallel and join at `gate`, which then decides whether we were blocked.
 graph.add_edge(START, "safety")
-graph.add_conditional_edges("safety", route_after_safety, {
+graph.add_edge(START, "prepare")
+graph.add_edge("safety", "gate")
+graph.add_edge("prepare", "gate")
+graph.add_conditional_edges("gate", route_after_safety, {
     "end_early": END,
-    "continue": "prepare"
+    "continue": "retrieve",
 })
-graph.add_edge("prepare", "retrieve")
 graph.add_edge("retrieve", "synthesize")
 graph.add_edge("synthesize", END)
 

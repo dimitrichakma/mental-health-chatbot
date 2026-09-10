@@ -63,6 +63,8 @@ def synthesis_prompt(question, retrieval_results):
         "You are an educational assistant for CBT and mental health. Answer the "
         "question using ONLY the context below.\n\n"
         "Rules:\n"
+        "- Be concise: a few sentences for a simple question, at most two short "
+        "paragraphs for a complex one. No preamble.\n"
         '- If the context does not contain enough to answer, say "I don\'t have '
         'reliable information on that" - do not guess or use outside knowledge.\n'
         "- Keep it educational: explain in general terms. Do not diagnose the "
