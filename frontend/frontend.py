@@ -25,7 +25,7 @@ EXAMPLES = [
     "How does behavioral activation help with depression?",
 ]
 
-st.set_page_config(page_title="CBT Companion", page_icon="🌿", layout="centered")
+st.set_page_config(page_title="CBT & Mental Health Chatbot", page_icon="🌿", layout="centered")
 
 st.markdown(
     """
@@ -66,7 +66,7 @@ st.markdown(
 st.markdown(
     """
     <div class="app-header">
-      <h1>🌿 CBT Companion</h1>
+      <h1>🌿 CBT &amp; Mental Health Chatbot</h1>
       <p>Ask about cognitive behavioral therapy, common mental-health conditions, and coping skills.
          Answers are drawn from a curated knowledge base and concept graph.</p>
     </div>
@@ -97,16 +97,12 @@ def backend_online():
 
 # --- sidebar ---
 with st.sidebar:
-    st.subheader("CBT Companion")
+    st.subheader("CBT & Mental Health Chatbot")
     st.caption("Hybrid graph + vector retrieval, corrective-retrieval router, "
                "LangGraph agent with memory, web-search fallback.")
 
     online = backend_online()
-    st.markdown(
-        f"**Backend:** {'🟢 online' if online else '🔴 offline'}  \n"
-        f"<span style='font-size:0.75rem;color:#9ca3af'>{BACKEND_URL}</span>",
-        unsafe_allow_html=True,
-    )
+    st.markdown(f"**Status:** {'🟢 ready' if online else '🔴 unavailable'}")
 
     st.divider()
     st.markdown("**Try an example**")
