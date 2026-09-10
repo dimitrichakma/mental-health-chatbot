@@ -9,9 +9,6 @@ from src.router import llm
 
 GOLDEN_SET_PATH = Path(__file__).resolve().parent / "eval" / "golden_eval_set.json"
 
-with open(GOLDEN_SET_PATH) as f:
-    golden_set = json.load(f)
-
 
 def path_matches(expected, actual_paths):
     """Did routing land where the golden set expected?
@@ -55,36 +52,44 @@ def judge_answer(question, golden_answer, actual_answer):
         return "incorrect"
 
 
-path_correct = 0
-answer_correct = 0
-answer_partial = 0
-failures = []
+def main():
+    with open(GOLDEN_SET_PATH) as f:
+        golden_set = json.load(f)
 
-for item in golden_set:
-    try:
-        output = run_pipeline(item["question"])
-    except Exception as e:
-        print(item["question"], "-> ERROR:", e)
-        failures.append(item["question"])
-        continue
+    path_correct = 0
+    answer_correct = 0
+    answer_partial = 0
+    failures = []
 
-    actual_paths = [r["path"] for r in output["results"]]
-    p_ok = path_matches(item["expected_path"], actual_paths)
-    verdict = judge_answer(item["question"], item["golden_answer"], output["answer"])
+    for item in golden_set:
+        try:
+            output = run_pipeline(item["question"])
+        except Exception as e:
+            print(item["question"], "-> ERROR:", e)
+            failures.append(item["question"])
+            continue
 
-    path_correct += p_ok
-    answer_correct += verdict == "correct"
-    answer_partial += verdict == "partial"
+        actual_paths = [r["path"] for r in output["results"]]
+        p_ok = path_matches(item["expected_path"], actual_paths)
+        verdict = judge_answer(item["question"], item["golden_answer"], output["answer"])
 
-    print(item["question"])
-    print(f"   path: expected {item['expected_path']}, got {actual_paths}  -> {'OK' if p_ok else 'MISS'}")
-    print(f"   answer: {verdict}")
-    print(f"   {output['answer'][:150]}")
+        path_correct += p_ok
+        answer_correct += verdict == "correct"
+        answer_partial += verdict == "partial"
 
-scored = len(golden_set) - len(failures)
-print()
-print(f"Router path accuracy:   {path_correct}/{scored}")
-print(f"Answer correct:         {answer_correct}/{scored}")
-print(f"Answer correct+partial: {answer_correct + answer_partial}/{scored}")
-if failures:
-    print(f"Errored questions ({len(failures)}): {failures}")
+        print(item["question"])
+        print(f"   path: expected {item['expected_path']}, got {actual_paths}  -> {'OK' if p_ok else 'MISS'}")
+        print(f"   answer: {verdict}")
+        print(f"   {output['answer'][:150]}")
+
+    scored = len(golden_set) - len(failures)
+    print()
+    print(f"Router path accuracy:   {path_correct}/{scored}")
+    print(f"Answer correct:         {answer_correct}/{scored}")
+    print(f"Answer correct+partial: {answer_correct + answer_partial}/{scored}")
+    if failures:
+        print(f"Errored questions ({len(failures)}): {failures}")
+
+
+if __name__ == "__main__":
+    main()

@@ -2,19 +2,9 @@ from langchain_neo4j import Neo4jGraph
 from dotenv import load_dotenv
 import os
 
-from graph_aliases import NODE_ALIASES
+from .graph_aliases import NODE_ALIASES
 
 load_dotenv()
-
-graph = Neo4jGraph(
-    url=os.environ["NEO4J_URI"],
-    username=os.environ["NEO4J_USERNAME"],
-    password=os.environ["NEO4J_PASSWORD"],
-)
-
-# confirm APOC is available before relying on it for dynamic labels / batch delete
-apoc_check = graph.query("RETURN apoc.version() AS version")
-print("APOC version:", apoc_check[0]["version"])
 
 CSV_URL = "https://raw.githubusercontent.com/dimitrichakma/cbt-graph-data/main/graph_triples_rebalanced.csv"
 
@@ -38,20 +28,6 @@ SKIP_RELATIONS = [
     "bioprocess_bioprocess",
     "phenotype_protein",
 ]
-
-# --- wipe the existing graph so this is a clean reload, not an additive MERGE ---
-print("Clearing existing graph...")
-graph.query(
-    """
-    CALL apoc.periodic.iterate(
-        'MATCH (n) RETURN n',
-        'DETACH DELETE n',
-        {batchSize: 1000}
-    )
-    """
-)
-graph.query("CALL apoc.schema.assert({}, {})")  # drop any stale indexes/constraints
-print("Cleared.")
 
 # --- load: Tier 1 filter, Tier 2 canonicalization, :Entity label ---
 # canonical name = NODE_ALIASES[lower(trimmed name)] if present, else the
@@ -81,23 +57,51 @@ CALL {
 RETURN count(*) AS rows_loaded
 """
 
-result = graph.query(load_query, params={
-    "csv_url": CSV_URL,
-    "skip_origins": SKIP_ORIGINS,
-    "skip_relations": SKIP_RELATIONS,
-    "aliases": NODE_ALIASES,
-})
-print(f"Rows loaded (after filtering + canonicalization): {result[0]['rows_loaded']}")
 
-# --- indexes for entity lookup ---
-graph.query("CREATE INDEX entity_name IF NOT EXISTS FOR (n:Entity) ON (n.name)")
-graph.query("CREATE FULLTEXT INDEX entity_name_ft IF NOT EXISTS FOR (n:Entity) ON EACH [n.name]")
-graph.query("CALL db.awaitIndexes(300)")
-print("Indexes created.")
+def main():
+    graph = Neo4jGraph(
+        url=os.environ["NEO4J_URI"],
+        username=os.environ["NEO4J_USERNAME"],
+        password=os.environ["NEO4J_PASSWORD"],
+    )
 
-nodes = graph.query("MATCH (n:Entity) RETURN count(n) AS c")[0]["c"]
-rels = graph.query("MATCH ()-[r:RELATION]->() RETURN count(r) AS c")[0]["c"]
-print(f"Graph: {nodes} nodes, {rels} relationships")
-for row in graph.query("MATCH ()-[r:RELATION]->() RETURN r.type AS t, count(*) AS c ORDER BY c DESC LIMIT 12"):
-    print(f"  {row['t']:28} {row['c']}")
-print("Graph loaded")
+    apoc = graph.query("RETURN apoc.version() AS version")
+    print("APOC version:", apoc[0]["version"])
+
+    # wipe first, so this is a clean reload rather than an additive MERGE
+    print("Clearing existing graph...")
+    graph.query(
+        """
+        CALL apoc.periodic.iterate(
+            'MATCH (n) RETURN n',
+            'DETACH DELETE n',
+            {batchSize: 1000}
+        )
+        """
+    )
+    graph.query("CALL apoc.schema.assert({}, {})")  # drop stale indexes/constraints
+    print("Cleared.")
+
+    result = graph.query(load_query, params={
+        "csv_url": CSV_URL,
+        "skip_origins": SKIP_ORIGINS,
+        "skip_relations": SKIP_RELATIONS,
+        "aliases": NODE_ALIASES,
+    })
+    print(f"Rows loaded (after filtering + canonicalization): {result[0]['rows_loaded']}")
+
+    graph.query("CREATE INDEX entity_name IF NOT EXISTS FOR (n:Entity) ON (n.name)")
+    graph.query("CREATE FULLTEXT INDEX entity_name_ft IF NOT EXISTS FOR (n:Entity) ON EACH [n.name]")
+    graph.query("CALL db.awaitIndexes(300)")
+    print("Indexes created.")
+
+    nodes = graph.query("MATCH (n:Entity) RETURN count(n) AS c")[0]["c"]
+    rels = graph.query("MATCH ()-[r:RELATION]->() RETURN count(r) AS c")[0]["c"]
+    print(f"Graph: {nodes} nodes, {rels} relationships")
+    for row in graph.query("MATCH ()-[r:RELATION]->() RETURN r.type AS t, count(*) AS c ORDER BY c DESC LIMIT 12"):
+        print(f"  {row['t']:28} {row['c']}")
+    print("Graph loaded")
+
+
+if __name__ == "__main__":
+    main()

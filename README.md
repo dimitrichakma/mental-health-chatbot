@@ -66,10 +66,11 @@ a Postgres database.
 ## Build the stores (one-time)
 
 ```bash
-python data_prep/merge_authoritative_sources.py   # add curated CBT docs to the corpus
-python data_prep/chunk_vector_sources.py          # chunk → data/processed/vector_chunks_final.json
-python data_prep/build_vector_store.py             # embed → Pinecone
-python data_prep/load_neo4j.py                     # filtered + canonicalized graph load, with indexes
+# run from the repo root
+python -m data_prep.merge_authoritative_sources   # add curated CBT docs to the corpus
+python -m data_prep.chunk_vector_sources          # chunk → data/processed/vector_chunks_final.json
+python -m data_prep.build_vector_store            # embed → Pinecone
+python -m data_prep.load_neo4j                    # filtered + canonicalized graph load, with indexes
 ```
 
 The source data (`vector_source_merged.csv`, `data/raw/authoritative_cbt/docs.json`)

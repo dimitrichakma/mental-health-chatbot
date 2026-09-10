@@ -13,8 +13,6 @@ load_dotenv()
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data" / "processed"
 
-df = pd.read_csv(DATA_DIR / "vector_source_merged.csv")
-
 _vo = voyageai.Client(api_key=os.environ["VOYAGE_API_KEY"])
 
 
@@ -92,31 +90,38 @@ def chunk_row(row):
     return recursive_splitter.split_text(text)
 
 
-final_chunks = []
-for _, row in df.iterrows():
-    for piece in chunk_row(row):
-        if not piece.strip():
-            continue
-        title = row["source_title"]
-        section = row["section"]
-        # contextual prefix: this is what gets embedded, so a chunk taken from
-        # the middle of a document still carries where it came from
-        embed_text = f"{context_prefix(title, section)} {piece}"
-        final_chunks.append({
-            "source_title": title,
-            "section": section,
-            "text": piece,             # clean text, handed to the answer model
-            "embed_text": embed_text,  # what build_vector_store.py embeds
-            "origin": row["origin"],
-            "url": row["url"] if pd.notna(row["url"]) else "",
-        })
+def main():
+    df = pd.read_csv(DATA_DIR / "vector_source_merged.csv")
 
-print(f"Original rows: {len(df)}")
-print(f"Chunks after splitting: {len(final_chunks)}")
-by_origin = {}
-for c in final_chunks:
-    by_origin[c["origin"]] = by_origin.get(c["origin"], 0) + 1
-print("Chunks by origin:", by_origin)
+    final_chunks = []
+    for _, row in df.iterrows():
+        for piece in chunk_row(row):
+            if not piece.strip():
+                continue
+            title = row["source_title"]
+            section = row["section"]
+            # contextual prefix: this is what gets embedded, so a chunk taken
+            # from the middle of a document still carries where it came from
+            embed_text = f"{context_prefix(title, section)} {piece}"
+            final_chunks.append({
+                "source_title": title,
+                "section": section,
+                "text": piece,             # clean text, handed to the answer model
+                "embed_text": embed_text,  # what build_vector_store.py embeds
+                "origin": row["origin"],
+                "url": row["url"] if pd.notna(row["url"]) else "",
+            })
 
-with open(DATA_DIR / "vector_chunks_final.json", "w") as f:
-    json.dump(final_chunks, f)
+    print(f"Original rows: {len(df)}")
+    print(f"Chunks after splitting: {len(final_chunks)}")
+    by_origin = {}
+    for c in final_chunks:
+        by_origin[c["origin"]] = by_origin.get(c["origin"], 0) + 1
+    print("Chunks by origin:", by_origin)
+
+    with open(DATA_DIR / "vector_chunks_final.json", "w") as f:
+        json.dump(final_chunks, f)
+
+
+if __name__ == "__main__":
+    main()
