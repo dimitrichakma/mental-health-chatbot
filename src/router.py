@@ -1,11 +1,13 @@
+from concurrent.futures import ThreadPoolExecutor
+from typing import Optional, Literal
+
+from pydantic import BaseModel, Field
+
 from .retrieval import naive_rag_retrieve, graph_rag_retrieve
 from .grading import grade_relevance
-from langchain_anthropic import ChatAnthropic
-from pydantic import BaseModel, Field
-from typing import Optional, Literal
+from .llm import fast_llm
 from .web_search_fallback import web_search_and_ingest
 
-llm = ChatAnthropic(model="claude-sonnet-4-6")
 
 class RouteDecision(BaseModel):
     path: Literal["graph_rag", "naive_rag", "both"] = Field(
@@ -24,7 +26,7 @@ class RouteDecision(BaseModel):
         ),
     )
 
-router_llm = llm.with_structured_output(RouteDecision)
+router_llm = fast_llm.with_structured_output(RouteDecision)
 
 def classify_and_extract(question):
     try:
@@ -90,3 +92,12 @@ def route_with_correction(question):
     else:
         combined = naive_rag_retrieve(question) + graph_rag_retrieve(result["entity"])
     return {"path": "both", "context": combined, "entity": result["entity"], "corrected": True}
+
+
+def route_all(subquestions):
+    """route_with_correction for every sub-question, concurrently (each does
+    blocking LLM / DB / HTTP calls, so threads give real parallelism)."""
+    if len(subquestions) <= 1:
+        return [route_with_correction(sq) for sq in subquestions]
+    with ThreadPoolExecutor(max_workers=len(subquestions)) as pool:
+        return list(pool.map(route_with_correction, subquestions))

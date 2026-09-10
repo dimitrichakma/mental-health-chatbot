@@ -4,11 +4,9 @@ circular dependency (router <-> web_search_fallback)."""
 
 from typing import Literal
 
-from dotenv import load_dotenv
-from langchain_anthropic import ChatAnthropic
 from pydantic import BaseModel, Field
 
-load_dotenv()
+from .llm import fast_llm
 
 
 class RelevanceGrade(BaseModel):
@@ -17,7 +15,7 @@ class RelevanceGrade(BaseModel):
     )
 
 
-_grader = ChatAnthropic(model="claude-sonnet-4-6").with_structured_output(RelevanceGrade)
+_grader = fast_llm.with_structured_output(RelevanceGrade)
 
 
 def grade_relevance(question, context):

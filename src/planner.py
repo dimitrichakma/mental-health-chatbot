@@ -1,12 +1,14 @@
-from .router import route_with_correction, llm
 from pydantic import BaseModel, Field
+
+from .llm import fast_llm, smart_llm
+from .router import route_all
 
 class SubquestionList(BaseModel):
     subquestions: list[str] = Field(
         description="1 to 3 simple subquestions the original question breaks into, or the original question itself in a list of one if it does not need splitting"
     )
 
-planner_llm = llm.with_structured_output(SubquestionList)
+planner_llm = fast_llm.with_structured_output(SubquestionList)
 
 def plan_subquestions(question):
     try:
@@ -31,7 +33,7 @@ def synthesize_answer(question, retrieval_results):
             "I can only answer from the CBT and mental-health knowledge base I was given."
         )
 
-    response = llm.invoke(
+    response = smart_llm.invoke(
         f"""Answer the question using ONLY the context below. Mention which pieces came from the graph versus the text sources if relevant.
 
 If the context does not actually contain enough to answer the question, say "I don't have reliable information on that" instead of guessing or using outside knowledge.
@@ -43,8 +45,6 @@ Context: {context_text}"""
 
 def run_pipeline(question):
     subquestions = plan_subquestions(question)
-    results = []
-    for sq in subquestions:
-        results.append(route_with_correction(sq))
+    results = route_all(subquestions)
     answer = synthesize_answer(question, results)
     return {"answer": answer, "results": results}

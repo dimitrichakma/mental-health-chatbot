@@ -7,7 +7,8 @@ from dotenv import load_dotenv
 import os
 from .safety import check_safety
 from .planner import plan_subquestions, synthesize_answer
-from .router import route_with_correction, llm
+from .router import route_all
+from .llm import fast_llm
 
 load_dotenv()
 
@@ -27,7 +28,7 @@ class ConversationalQuestion(BaseModel):
         description="The user's latest question rewritten to be fully understandable on its own, resolving any pronouns or implicit references using the conversation history. If the question is already standalone, return it unchanged."
     )
 
-condenser_llm = llm.with_structured_output(ConversationalQuestion)
+condenser_llm = fast_llm.with_structured_output(ConversationalQuestion)
 
 def condense_question(question, chat_history):
     if not chat_history:
@@ -57,7 +58,7 @@ def plan_node(state: AgentState) -> dict:
     return {"subquestions": plan_subquestions(state["standalone_question"])}
 
 def retrieve_node(state: AgentState) -> dict:
-    return {"results": [route_with_correction(sq) for sq in state["subquestions"]]}
+    return {"results": route_all(state["subquestions"])}
 
 def synthesize_node(state: AgentState) -> dict:
     answer = synthesize_answer(state["standalone_question"], state["results"])

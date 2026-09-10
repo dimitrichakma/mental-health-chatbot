@@ -5,7 +5,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from src.planner import run_pipeline
-from src.router import llm
+from src.llm import smart_llm
 
 GOLDEN_SET_PATH = Path(__file__).resolve().parent / "eval" / "golden_eval_set.json"
 
@@ -34,7 +34,7 @@ class Judgement(BaseModel):
     )
 
 
-judge_llm = llm.with_structured_output(Judgement)
+judge_llm = smart_llm.with_structured_output(Judgement)
 
 
 def judge_answer(question, golden_answer, actual_answer):

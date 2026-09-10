@@ -1,12 +1,8 @@
 from typing import Literal
 
-from dotenv import load_dotenv
-from langchain_anthropic import ChatAnthropic
 from pydantic import BaseModel, Field
 
-# safety.py can be imported before anything else loads the .env (agents.py
-# imports it first), and it now needs ANTHROPIC_API_KEY, so load it here too
-load_dotenv()
+from .llm import fast_llm
 
 CRISIS_RESPONSE = """It sounds like you might be going through something very difficult right now.
 Please reach out to a crisis line in your area, or a trusted person near you, for immediate support."""
@@ -35,7 +31,10 @@ class CrisisCheck(BaseModel):
     )
 
 
-_classifier = ChatAnthropic(model="claude-sonnet-4-6").with_structured_output(CrisisCheck)
+# runs once per message and is on the latency-critical path. crisis risk is a
+# well-scoped 3-class judgment that Haiku handles, with the keyword screen as a
+# backstop. bump FAST_MODEL if a stronger safety classifier is wanted.
+_classifier = fast_llm.with_structured_output(CrisisCheck)
 
 
 def _keyword_hit(text):
