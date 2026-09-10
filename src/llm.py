@@ -16,7 +16,7 @@ from langchain_anthropic import ChatAnthropic
 load_dotenv()
 
 FAST_MODEL = os.getenv("FAST_MODEL", "claude-haiku-4-5")
-SMART_MODEL = os.getenv("SMART_MODEL", "claude-sonnet-4-6")
+SMART_MODEL = os.getenv("SMART_MODEL", "claude-sonnet-5")
 
 fast_llm = ChatAnthropic(model=FAST_MODEL, timeout=60)
 smart_llm = ChatAnthropic(model=SMART_MODEL, timeout=90)
