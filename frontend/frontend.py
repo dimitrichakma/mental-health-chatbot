@@ -214,6 +214,15 @@ with st.sidebar:
     online = backend_online()
     st.markdown(f"**Status:** {'🟢 ready' if online else '🔴 unavailable'}")
 
+    # TEMP: checking whether Railway's edge forwards the visitor's real IP to
+    # this container (unlike Streamlit Community Cloud, which only ever
+    # showed internal 10.x hops here). Remove once confirmed either way.
+    with st.expander("debug: raw headers"):
+        try:
+            st.json(dict(st.context.headers))
+        except Exception as e:
+            st.write(f"error: {e}")
+
     st.divider()
     if st.button("🗑️  New conversation", use_container_width=True):
         st.session_state.messages = []
