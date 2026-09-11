@@ -145,11 +145,27 @@ def _fetch_history(thread_id):
         return []
 
 
+def _fetch_threads(device_id):
+    """The sidebar's past-conversations list for this device. Best-effort -
+    an empty list just means the sidebar section doesn't render."""
+    try:
+        r = requests.get(f"{BACKEND_URL}/threads", params={"device_id": device_id}, timeout=5)
+        r.raise_for_status()
+        return r.json().get("threads", [])
+    except Exception:
+        return []
+
+
 # --- session state ---
-# thread_id lives in the URL (?t=...) so a page refresh / dropped connection
-# keeps the same conversation instead of silently starting a new one - the
+# thread_id and device_id live in the URL (?t=...&d=...) so a page refresh /
+# dropped connection keeps the same conversation instead of silently starting
+# a new one, and the same "device" keeps seeing its conversation list - the
 # backend's memory (Postgres) already outlives the browser session, the UI
-# just wasn't asking for it back.
+# just wasn't asking for it back. There's no login, so device_id is just an
+# anonymous id scoped to this browser/bookmarked link, not a real account.
+if "device_id" not in st.session_state:
+    st.session_state.device_id = st.query_params.get("d") or str(uuid.uuid4())
+    st.query_params["d"] = st.session_state.device_id
 if "thread_id" not in st.session_state:
     from_url = st.query_params.get("t")
     st.session_state.thread_id = from_url or str(uuid.uuid4())
@@ -194,6 +210,27 @@ with st.sidebar:
     st.markdown(f"**Status:** {'🟢 ready' if online else '🔴 unavailable'}")
 
     st.divider()
+    if st.button("🗑️  New conversation", use_container_width=True):
+        st.session_state.messages = []
+        st.session_state.thread_id = str(uuid.uuid4())
+        st.query_params["t"] = st.session_state.thread_id
+        st.session_state.pending = None
+        st.rerun()
+
+    past = [t for t in _fetch_threads(st.session_state.device_id)
+            if t["thread_id"] != st.session_state.thread_id]
+    if past:
+        st.markdown("**Conversations**")
+        for t in past:
+            label = t["title"] or "Untitled (naming…)"
+            if st.button(label, use_container_width=True, key=f"thread_{t['thread_id']}"):
+                st.session_state.thread_id = t["thread_id"]
+                st.query_params["t"] = t["thread_id"]
+                st.session_state.messages = _fetch_history(t["thread_id"])
+                st.session_state.pending = None
+                st.rerun()
+
+    st.divider()
     st.selectbox(
         "Country (for crisis helplines)",
         options=list(_COUNTRY_NAMES),
@@ -208,14 +245,6 @@ with st.sidebar:
     for ex in EXAMPLES:
         if st.button(ex, use_container_width=True, key=f"ex_{ex}"):
             st.session_state.pending = ex
-
-    st.divider()
-    if st.button("🗑️  New conversation", use_container_width=True):
-        st.session_state.messages = []
-        st.session_state.thread_id = str(uuid.uuid4())
-        st.query_params["t"] = st.session_state.thread_id
-        st.session_state.pending = None
-        st.rerun()
 
     st.caption(f"{len(st.session_state.messages) // 2} exchanges · "
                f"thread `{st.session_state.thread_id[:8]}`")
@@ -306,6 +335,7 @@ if question:
     payload = {
         "question": question,
         "thread_id": st.session_state.thread_id,
+        "device_id": st.session_state.device_id,
         # only set when the sidebar override isn't "Auto-detect"
         "country": st.session_state.get("country_override") or None,
     }

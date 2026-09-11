@@ -15,6 +15,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from src import day_budget
+from src import threads as threads_store
 from src.agent import agent, agent_config, chunk_text, pool, run_agent
 from src.crisis_resources import resolve_country
 from src.usage import UsageTracker
@@ -75,7 +76,8 @@ async def lifespan(app: FastAPI):
                 conn.execute(_LOG_TABLE_SQL)
                 conn.execute(_LOG_TABLE_MIGRATE)
             day_budget.setup()
-            logger.info("conversation_log + daily_usage tables ready")
+            threads_store.setup()
+            logger.info("conversation_log + daily_usage + threads tables ready")
         except Exception:
             logger.exception("could not create backend tables")
     yield
@@ -123,6 +125,8 @@ class ChatRequest(BaseModel):
     # optional manual override when Accept-Language detection gets the crisis
     # helpline country wrong (e.g. an English-locale browser physically in BD)
     country: str | None = Field(default=None, max_length=2)
+    # anonymous per-browser id (no login) - scopes the sidebar's conversation list
+    device_id: str | None = Field(default=None, max_length=64)
 
 
 class Feedback(BaseModel):
@@ -157,6 +161,12 @@ def history(thread_id: str):
         logger.exception("history lookup failed for thread %s", thread_id)
         chat_history = []
     return {"chat_history": chat_history}
+
+
+@app.get("/threads")
+def list_threads(device_id: str):
+    """Sidebar conversation list for this (anonymous, cookie-less) device."""
+    return {"threads": threads_store.list_for_device(device_id)}
 
 
 @app.post("/chat")
@@ -195,6 +205,8 @@ def chat(request: Request, body: ChatRequest):
         thread_id, body.question, output["answer"], paths_used, kind == "crisis",
         latency_ms, snap["cost_usd"],
     )
+    if kind == "answer":  # skip crisis/off-topic exchanges - nothing worth titling
+        threads_store.touch(body.device_id, thread_id, body.question, output["answer"])
 
     return {
         "answer": output["answer"],
@@ -273,6 +285,8 @@ def chat_stream(request: Request, body: ChatRequest):
                     latency_ms, snap["cost_usd"], spent + snap["cost_usd"], limit)
         log_id = _log_conversation(thread_id, body.question, answer, paths_used,
                                    kind == "crisis", latency_ms, snap["cost_usd"])
+        if kind == "answer":  # skip crisis/off-topic exchanges - nothing worth titling
+            threads_store.touch(body.device_id, thread_id, body.question, answer)
         yield _sse({"type": "done", "log_id": log_id, "kind": kind,
                     "paths_used": paths_used, "latency_ms": latency_ms})
 
