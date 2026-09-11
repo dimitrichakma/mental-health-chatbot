@@ -120,6 +120,9 @@ class ChatRequest(BaseModel):
     # the room a prompt-injection payload has to work with.
     question: str = Field(min_length=1, max_length=2000)
     thread_id: str | None = None
+    # optional manual override when Accept-Language detection gets the crisis
+    # helpline country wrong (e.g. an English-locale browser physically in BD)
+    country: str | None = Field(default=None, max_length=2)
 
 
 class Feedback(BaseModel):
@@ -167,7 +170,7 @@ def chat(request: Request, body: ChatRequest):
         )
 
     thread_id = body.thread_id or str(uuid4())
-    country = resolve_country(request.headers.get("accept-language"))
+    country = body.country or resolve_country(request.headers.get("accept-language"))
     tracker = UsageTracker()  # no ceiling - meter only
     t0 = time.perf_counter()
     try:
@@ -222,7 +225,7 @@ def chat_stream(request: Request, body: ChatRequest):
         )
 
     thread_id = body.thread_id or str(uuid4())
-    country = resolve_country(request.headers.get("accept-language"))
+    country = body.country or resolve_country(request.headers.get("accept-language"))
     tracker = UsageTracker()
     config = agent_config(thread_id, country, [tracker])
     inp = {"question": body.question, "country": country}

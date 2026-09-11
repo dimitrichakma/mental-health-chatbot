@@ -5,6 +5,8 @@ import uuid
 import requests
 import streamlit as st
 
+from src.crisis_resources import CRISIS_RESOURCES, resolve_country
+
 
 def _backend_url():
     # Streamlit Community Cloud: set BACKEND_URL in the app's Secrets.
@@ -131,6 +133,21 @@ def backend_online():
         return False
 
 
+# crisis-helpline country: auto-detected from the browser's own Accept-Language
+# (no picker, no IP geolocation) - but that only reflects browser/OS language,
+# not physical location, so it's wrong for e.g. an English-locale browser
+# outside the US. Detected here (not just in the backend) so the sidebar can
+# show what was picked and offer a one-click override.
+try:
+    _accept_language = st.context.headers.get("Accept-Language")
+except Exception:
+    _accept_language = None
+_detected_country = resolve_country(_accept_language)
+_COUNTRY_NAMES = {"": f"Auto-detect"
+                  + (f" ({CRISIS_RESOURCES[_detected_country][0]})" if _detected_country else "")}
+_COUNTRY_NAMES.update({code: entry[0] for code, entry in CRISIS_RESOURCES.items()})
+
+
 # --- sidebar ---
 with st.sidebar:
     st.subheader("CBT & Mental Health Chatbot")
@@ -139,6 +156,16 @@ with st.sidebar:
 
     online = backend_online()
     st.markdown(f"**Status:** {'🟢 ready' if online else '🔴 unavailable'}")
+
+    st.divider()
+    st.selectbox(
+        "Country (for crisis helplines)",
+        options=list(_COUNTRY_NAMES),
+        format_func=lambda c: _COUNTRY_NAMES[c],
+        key="country_override",
+        help="Auto-detected from your browser language. If a crisis message ever "
+             "shows the wrong country's helplines, pick the right one here.",
+    )
 
     st.divider()
     st.markdown("**Try an example**")
@@ -240,18 +267,17 @@ if question:
     with st.chat_message("user", avatar=USER_AVATAR):
         st.markdown(question)
 
-    payload = {"question": question, "thread_id": st.session_state.thread_id}
+    payload = {
+        "question": question,
+        "thread_id": st.session_state.thread_id,
+        # only set when the sidebar override isn't "Auto-detect"
+        "country": st.session_state.get("country_override") or None,
+    }
 
     # requests.post runs on the Streamlit server, not in the visitor's browser -
     # forward the browser's own Accept-Language so the backend can localize
-    # crisis helplines automatically (no country picker, no IP geolocation).
-    request_headers = {}
-    try:
-        lang = st.context.headers.get("Accept-Language")
-        if lang:
-            request_headers["Accept-Language"] = lang
-    except Exception:
-        pass
+    # crisis helplines automatically when there's no override above.
+    request_headers = {"Accept-Language": _accept_language} if _accept_language else {}
 
     with st.chat_message("assistant", avatar=BOT_AVATAR):
         meta = {"kind": "answer", "paths_used": [], "log_id": None}
