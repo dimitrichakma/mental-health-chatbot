@@ -1,25 +1,80 @@
-# mental-health-chatbot
+# CBT & Mental Health Companion
 
-A CBT / mental-health question-answering agent with **hybrid retrieval** (a Neo4j
-knowledge graph + a Pinecone vector store), a **corrective-retrieval router**, a
-**LangGraph agent** with conversation memory, and a **live web-search fallback**
-that vets, chunks, and ingests new sources on the fly.
+A production-shaped **RAG agent** that answers CBT / mental-health questions
+strictly from a curated knowledge base — never the model's own knowledge —
+with hybrid graph + vector retrieval, a self-correcting retrieval loop, a
+safety gate that catches crisis messages before any retrieval happens, and
+real user accounts.
 
-**Live app:** https://mental-health-chatbot.up.railway.app · **API:** https://backend-production-63da.up.railway.app
+Built solo, end to end: data pipeline → retrieval → agent orchestration →
+safety/cost engineering → auth → two deployed services.
 
-> Personal learning project. Not medical advice.
+[![Python](https://img.shields.io/badge/Python-3.13-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![Next.js](https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white)](https://nextjs.org/)
+[![LangGraph](https://img.shields.io/badge/LangGraph-agent-1C3C3C)](https://www.langchain.com/langgraph)
+[![Neo4j](https://img.shields.io/badge/Neo4j-graph-4581C3?logo=neo4j&logoColor=white)](https://neo4j.com/)
+[![Pinecone](https://img.shields.io/badge/Pinecone-vector%20store-000000)](https://www.pinecone.io/)
+[![Claude](https://img.shields.io/badge/Claude-Anthropic-D97757?logo=anthropic&logoColor=white)](https://www.anthropic.com/)
+[![Railway](https://img.shields.io/badge/Railway-deployed-0B0D0E?logo=railway&logoColor=white)](https://railway.app/)
+
+**Live app:** https://mental-health-chatbot.up.railway.app
+**API:** https://backend-production-63da.up.railway.app/docs
+
+> Educational / portfolio project. Not medical advice.
 
 ![demo](assets/demo.gif)
 
 *Knowledge-base answer → memory follow-up ("how is **it** used for OCD") → knowledge-graph answer → safety gate.*
 
-## How it works
+## Why this exists
+
+Most RAG demos stop at "retrieve chunks, stuff them in a prompt." This one
+is built the way a real internal tool would need to be: it has to know when
+its own retrieval failed and *do something about it* before answering,
+handle a domain where a wrong or hallucinated answer isn't just embarrassing
+but potentially harmful, and run under a real budget instead of an unlimited
+API key.
+
+## Highlights
+
+- **Corrective retrieval, not single-shot RAG.** A router classifies each
+  sub-question (`graph_rag` / `naive_rag` / `both`), retrieves, *grades its
+  own retrieval quality*, and falls back — first to the other retrieval
+  path, then to a live web search that vets, chunks, and embeds new sources
+  on the fly — before ever answering "I don't know."
+- **Safety-first request path.** A front-door gate screens every message for
+  crisis risk *before* retrieval runs, using conversation history so a bare
+  follow-up ("what about for kids?") is still classified in context. Crisis
+  replies resolve the country from the visitor's real IP for localized
+  helplines and always carry an international-directory fallback.
+- **Defense-in-depth auth**, added after the app already worked: Google
+  OAuth on the frontend, a short-lived signed token (not the session cookie
+  itself) proves identity to a separately-deployed backend, and every
+  thread/history/feedback lookup is ownership-checked server-side — not just
+  filtered client-side.
+- **Cost and abuse engineering that isn't an afterthought**: a shared rate
+  limiter across every model call, Postgres-backed response caching, a hard
+  daily spend ceiling with graceful 503s, per-IP rate limiting, and prompt-
+  injection hardening (delimited user input, explicit "treat as data"
+  framing, a tightened message cap).
+- **A real evaluation harness**, not spot-checking in a chat window: Ragas
+  RAG metrics (faithfulness, a custom clinical-safety critic, context
+  recall/precision) plus a custom harness that checks graph answers against
+  live Cypher queries and confirms the crisis gate fires exactly when it
+  should — both cost-guarded with a hard spend ceiling.
+- **Two independently deployed services with clean separation of concerns**:
+  the Next.js frontend never touches the backend's Python code or secrets,
+  and the backend never sees the frontend's session cookie.
+
+## Architecture
 
 ```
 question
   │
   ├─ front-door gate ─────────────────► one Haiku call: crisis risk + on-topic?
-  │      • high risk  → localized crisis helplines (country from the UI), stop
+  │      • high risk  → localized crisis helplines (IP-resolved country), stop
   │      • off-topic  → polite "I only cover mental health / CBT" decline, stop
   ▼
 condense ──► rewrite into a standalone question using chat history
@@ -38,8 +93,7 @@ synthesize ► answer from retrieved context only; refuses to guess
 ```
 
 `condense` + `plan` are one `fast_llm` call (`prepare`). The backend streams
-the synthesized answer token-by-token over SSE (`POST /chat/stream`); `POST
-/chat` still returns it in one shot.
+the synthesized answer token-by-token over SSE (`POST /chat/stream`).
 
 - **Graph** (`src/retrieval.py`): relation-tiered traversal — specific facts
   (contraindication, has_symptom, exhibits, reflects…) ranked above vague
@@ -48,215 +102,189 @@ the synthesized answer token-by-token over SSE (`POST /chat/stream`); `POST
 - **Vector store**: `voyage-3.5` embeddings, contextual `[title — section]`
   prefix on every chunk, counsel-chat Q&A kept whole, long docs semantically
   chunked.
-- **Memory**: LangGraph checkpointer over Postgres (`DATABASE_URL`), keyed by
-  `thread_id`.
+- **Memory**: LangGraph checkpointer over Postgres, keyed by `thread_id`.
+- **Agent graph**: `START → {safety, prepare}` run concurrently → a join
+  node (`gate`) → conditional `{END | retrieve}` → `synthesize` → `END`.
+  (A naive parallel-branch-into-conditional-exit graph is broken in
+  LangGraph — a node fires if *any* incoming edge does — so the join node
+  is load-bearing, not decorative.)
 
-## Layout
+## Tech stack
+
+| Layer | Choice |
+|---|---|
+| Agent orchestration | LangGraph (`StateGraph`), Postgres checkpointer |
+| LLMs | Claude (Anthropic) — Haiku for classifiers/gates, Sonnet/Opus for synthesis & eval judging |
+| Knowledge graph | Neo4j + APOC |
+| Vector store | Pinecone, Voyage AI embeddings |
+| Web fallback | Tavily search |
+| Backend | FastAPI, SSE streaming, `slowapi` rate limiting |
+| Frontend | Next.js 16 (App Router), Tailwind v4, TypeScript |
+| Auth | Auth.js v5 (Google OAuth), short-lived JWT bridge to the backend |
+| Database | Postgres (checkpoints, threads, conversation log, response cache, daily spend) |
+| Eval | Ragas + a custom harness against a hand-built golden set |
+| Deploy | Railway, two services, Docker |
+
+## Engineering deep-dives
+
+**Corrective retrieval router.** Every sub-question is graded after
+retrieval, not just routed once — if the graph comes back thin, it tries the
+vector store; if both are weak, it falls back to a live web search that
+checks source worthiness, semantically chunks, and embeds the result into
+Pinecone so the same question is faster next time. Nothing gets answered
+from context the router itself flagged as weak — the synthesizer is
+instructed to say it doesn't know rather than paper over a bad retrieval.
+
+**Safety gate.** Runs concurrently with question preparation (not serially,
+to avoid stacking latency), and always resolves before retrieval starts. It
+classifies crisis risk *and* topicality using conversation history, so a
+one-word follow-up doesn't get false-flagged as off-topic just because it
+has no context on its own — a real bug this project's eval suite caught and
+fixed. Crisis replies resolve a country from the browser's real public IP
+(`src/geoip.py`) and always include an international-directory fallback,
+because geolocation is best-effort and a fallback with no way to reach help
+isn't acceptable.
+
+**Auth model.** The frontend and backend are two independently deployed
+services with no shared infrastructure. Rather than share the frontend's
+session secret with the backend (coupling two services' security to one
+secret) or relay every request through the frontend server (which would
+hide the visitor's real IP from the backend, breaking crisis geolocation),
+the frontend's own server verifies the session, then mints a *separate*,
+short-lived (10 min), narrowly-scoped token the backend can verify
+independently. The backend trusts nothing else — every thread, history
+lookup, and feedback write is checked against the token's verified user id,
+not a client-supplied one.
+
+**Cost & abuse controls.** `src/llm.py` is the single choke point for every
+model call: a shared rate limiter across all concurrent sub-question
+routing, an exact-match Postgres response cache, and `max_tokens` capped
+everywhere. A daily spend ceiling returns a friendly 503 instead of an
+unbounded bill; `slowapi` caps `/chat` per client IP. Prompt-injection
+hardening delimits all user-controlled text and explicitly instructs models
+to treat it as data, including text ingested from the live web fallback
+(the indirect-injection surface most RAG demos ignore).
+
+**Evaluation.** Two layers: Ragas for industry-standard RAG metrics
+(faithfulness judged by Opus — nuance moves the score; a custom clinical-
+safety critic; context recall/precision), and a custom harness for what
+Ragas can't score — graph answers checked against **live** Cypher queries
+(not just "did retrieval find something"), and a hard pass/fail on whether
+the crisis gate fired exactly when it should. Both are cost-guarded with a
+hard spend ceiling that aborts with a partial report rather than run away.
+
+## Project structure
 
 ```
-src/                 runtime package (agent, router, planner, retrieval,
-                     grading, safety, web_search_fallback, auth)
-backend/backend.py   FastAPI: POST /chat, GET /health
-frontend/            Next.js + Tailwind chat UI (app/, components/, lib/,
-                     auth.ts - Google sign-in via Auth.js)
-data_prep/           one-off build scripts (chunk, embed, load graph)
-data/                source datasets + generated artifacts — NOT in the repo,
-                     rebuild with data_prep/ (see below)
-eval/                golden_eval_set.json  (+ evaluate.py at repo root)
-docs/                BUILD_GUIDE.md, FIXES.md
-Dockerfile           builds the backend image (backend deps only)
+src/                    runtime package - agent, router, planner, retrieval,
+                         grading, safety, auth, geoip, threads, llm/caching/budget
+backend/backend.py       FastAPI: /chat, /chat/stream (SSE), /threads, /history,
+                         /feedback, /health, /usage
+frontend/                Next.js + Tailwind chat UI
+  app/                   page + layout + api/auth, api/backend-token route handlers
+  components/            Header, Sidebar, SignInGate, MessageBubble, FeedbackRow, ...
+  lib/                   API client, constants/types
+  auth.ts                Auth.js config (Google provider)
+data_prep/               one-off build scripts: chunk, embed, load the graph
+eval/                    golden_eval_set.json (+ evaluate.py, ragas_eval.py at root)
+docs/                    BUILD_GUIDE.md, FIXES.md
+Dockerfile               backend image
+Dockerfile.frontend      frontend image (multi-stage Node build)
 ```
 
-## Setup
+## Getting started
 
 ```bash
 cp .env.example .env          # fill in the keys
 uv sync                       # or: pip install -r requirements.txt
 ```
 
-Needs: Anthropic, Voyage, Pinecone, Tavily API keys; a Neo4j instance with APOC;
-a Postgres database.
+Needs: Anthropic, Voyage, Pinecone, Tavily API keys; a Neo4j instance with
+APOC; a Postgres database.
 
-## Build the stores (one-time)
-
+**Build the knowledge stores** (one-time):
 ```bash
-# run from the repo root
 python -m data_prep.merge_authoritative_sources   # add curated CBT docs to the corpus
 python -m data_prep.chunk_vector_sources          # chunk → data/processed/vector_chunks_final.json
 python -m data_prep.build_vector_store            # embed → Pinecone
 python -m data_prep.load_neo4j                    # filtered + canonicalized graph load, with indexes
 ```
 
-The source data (`vector_source_merged.csv`, `data/raw/authoritative_cbt/docs.json`)
-is kept local. `merge_authoritative_sources.py` expects `docs.json`; the base
-CSV must be supplied separately.
-
-## Run
-
+**Run:**
 ```bash
-uvicorn backend.backend:app --port 8000     # API  (POST /chat, /feedback, GET /health)
-cd frontend && npm install && npm run dev   # chat UI  ->  http://localhost:3000
+uvicorn backend.backend:app --port 8000     # API
+cd frontend && npm install && npm run dev   # UI -> http://localhost:3000
 ```
+The frontend calls the backend directly from the browser, so the backend's
+`ALLOWED_ORIGINS` CORS setting must include wherever the frontend is served
+from. Signing in locally needs `frontend/.env.local` (copy
+`.env.local.example`) with `AUTH_SECRET`, `AUTH_GOOGLE_ID`,
+`AUTH_GOOGLE_SECRET`, and `BACKEND_JWT_SECRET` (must match the backend
+process's own env).
 
-The frontend calls the backend directly from the browser (`NEXT_PUBLIC_BACKEND_URL`,
-default `http://localhost:8000` for `npm run dev`; baked in at Docker build time in
-deploy - see Deployment below), so the backend's `ALLOWED_ORIGINS` CORS setting must
-include wherever the frontend is served from.
-
-Signing in locally needs `frontend/.env.local` (gitignored) with `AUTH_SECRET`,
-`AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`, and `BACKEND_JWT_SECRET` (matching whatever
-the backend process has in its own env) - see Deployment's Auth section below for
-where these come from.
-
-## Conversation logging & feedback
-
-When `DATABASE_URL` is set, the backend logs every `/chat` (question, answer,
-retrieval paths, latency, crisis flag) to a `conversation_log` table, and the
-UI shows a 👍/👎 + optional note under each answer (`POST /feedback`). Review
-tester sessions with:
-
-```bash
-python review_logs.py            # summary + newest conversations
-python review_logs.py --flagged  # only 👎 / noted
-python review_logs.py --csv out.csv
-```
-
-or ad-hoc SQL via `railway connect Postgres` + `review_logs.sql`.
-
-## Cost & rate controls
-
-`src/llm.py` is the single control point for every Claude call:
-
-- **Rate limiting** — one shared client-side limiter paces all outbound calls
-  (`ANTHROPIC_RPS`, default 2/s) so parallel sub-question routing doesn't trip
-  429s. The backend also caps `POST /chat` per client IP (`CHAT_RATE_LIMIT`,
-  default `20/minute`, via `slowapi`).
-- **Response caching** — an exact-match cache on `(prompt, model+params)`:
-  Postgres (`llm_cache` table) when `DATABASE_URL` is set, in-process otherwise,
-  off with `LLM_CACHE=0`. Repeated classifier calls (example-question buttons,
-  similar tester questions) and eval re-runs on unchanged items become free. It
-  does **not** help answer synthesis — the retrieved context is unique per call.
-- **Daily budget** — every `/chat` measures its own token cost (per-request
-  `UsageTracker`) and rolls it into a `daily_usage` row. Once a UTC day passes
-  `DAILY_BUDGET_USD` (default $5) the backend returns 503 with a friendly
-  message. `GET /usage` reports the day's spend. Per-request cost is also stored
-  on each `conversation_log` row.
-- **Eval guard** — the Opus judge carries a hard process ceiling
-  (`EVAL_MAX_USD`, default $5); a run aborts with a partial report if it trips.
-- **`max_tokens`** is set on every model so one runaway generation can't blow up
-  a bill.
-
-Prompt caching (Anthropic's native `cache_control`) isn't used: it needs
-≥1024-token cacheable prefixes and this app's prompts are short.
-
-Library use / eval:
-
+**Library use:**
 ```python
 from src.agent import run_agent
 run_agent("what is exposure and response prevention?", thread_id="demo")
 run_agent("what about for OCD specifically?", thread_id="demo")   # uses conversation memory
 ```
 
-Evaluation has two layers. Install the eval deps first: `uv sync --group eval`.
+## Conversation logging & feedback
 
-**Primary — Ragas RAG metrics** (`ragas_eval.py`), the industry-standard layer:
-
+When `DATABASE_URL` is set, the backend logs every `/chat` (question,
+answer, retrieval paths, latency, crisis flag) to `conversation_log`, and
+the UI collects 👍/👎 + an optional note per answer. Review with:
 ```bash
-python ragas_eval.py                     # concept / graph / combined / memory items
-python ragas_eval.py --category graph
-python ragas_eval.py --limit 5           # quick smoke
-python ragas_eval.py --reuse             # reuse cached pipeline outputs (iterate on metrics)
-python ragas_eval.py --precision         # + context_precision (Opus, ~+$2)
-python ragas_eval.py --strict            # + factual_correctness (Opus)
+python review_logs.py            # summary + newest conversations
+python review_logs.py --flagged  # only 👎 / noted
+python review_logs.py --csv out.csv
 ```
 
-Default metrics: `faithfulness` on **Opus 5** (nuance moves the score);
+## Evaluation
+
+Install eval deps first: `uv sync --group eval`.
+
+```bash
+python ragas_eval.py             # primary - Ragas RAG metrics, ~$3-4/full run
+python ragas_eval.py --category graph --limit 5   # cheap targeted iteration
+python evaluate.py               # companion harness, well under $1/full run
+```
+
+Default Ragas metrics: `faithfulness` on Opus (nuance moves the score);
 `clinical_safety` (custom critic), `answer_relevancy`, `context_recall` on
-Sonnet 5. `context_precision` is opt-in (`--precision`) — Sonnet mis-judges it
-on terse graph triples so it needs Opus, and it's ~1 call per chunk per item.
-`--all-opus` runs everything on Opus. Per-item scores → `eval/ragas_run.csv`.
-
-**Companion — custom harness** (`evaluate.py`) for what Ragas can't score:
-
-```bash
-python evaluate.py                          # whole golden set
-python evaluate.py --category safety,graph   # one or more categories only
-python evaluate.py --limit 5                 # quick smoke
-python evaluate.py --web                     # also allow the live web-search fallback
-```
-
-The golden set (`eval/golden_eval_set.json`) tags every item with a `category`.
-`evaluate.py` scores `concept` / `combined` on answer quality + routing, `graph`
-against the **live** graph (Cypher for every valid edge, so it doesn't matter
-which one retrieval surfaced) plus a retrieval-hit check, `safety` on whether the
-crisis gate fired exactly when it should, and `abstain` on whether the bot
-declined instead of answering from thin context. Web-search fallback is off by
-default so `abstain` stays honest.
-
-**Judge & cost.** Opus 5 for the nuanced calls (`JUDGE_MODEL`), Sonnet 5 for
-the rest (`JUDGE_FAST_MODEL`). Spend is metered per call and the run aborts with
-a partial report once it passes `EVAL_MAX_USD` (default $5) — this actually
-fires if you add `--precision` to a full run. Default full Ragas pass ≈ $3–4;
-the custom harness is well under $1. Use `--category` / `--limit` / `--reuse`
-while iterating.
+Sonnet. `evaluate.py` scores `concept`/`combined` on answer quality +
+routing, `graph` against the live graph, `safety` on whether the crisis gate
+fired exactly when it should, and `abstain` on whether the bot declined
+instead of answering from thin context. Both are metered per call and abort
+with a partial report if they pass `EVAL_MAX_USD` (default $5).
 
 ## Deployment
 
-Both services run on Railway, each auto-deploying from `main`:
-
-- **Backend** → `Dockerfile` (backend deps only) + Railway Postgres.
-  `railway.toml` sets the Docker builder and a `/health` check.
-- **Frontend** → `Dockerfile.frontend`, a Next.js + Tailwind app (deliberately
-  standalone - its own `package.json`, no dependency on the backend's Python
-  code). `BACKEND_URL` is set as a Railway variable on the frontend service;
-  Railway passes service variables as Docker build args automatically, so the
-  Dockerfile bakes it into the client bundle as `NEXT_PUBLIC_BACKEND_URL` at
-  build time (Next.js can't read env vars at runtime for client code).
-  The browser calls the backend directly (no server-side relay), so it needs
-  its own IP visible to the backend for crisis-helpline geolocation
-  (`src/geoip.py`) - no special wiring required, just real CORS.
-
-**Auth.** Google sign-in via [Auth.js](https://authjs.dev) v5 (`frontend/auth.ts`).
-Session cookies stay on the frontend only - the backend never sees them.
-Instead, `app/api/backend-token/route.ts` (server-side, after verifying the
-NextAuth session) mints a short-lived HS256 JWT signed with `BACKEND_JWT_SECRET`,
-which the browser sends as `Authorization: Bearer <token>` on every FastAPI
-call; `src/auth.py` verifies it there. `BACKEND_JWT_SECRET` is a plain shared
-secret - generate one (`openssl rand -hex 32`) and set it on **both**
-services. Threads/conversation_log are keyed by the verified Google account
-id (`sub`), not a client-supplied value - replaces the old anonymous
-`device_id` scheme (and closes the hole where any caller could set that to
-anything).
-
-First-time setup:
+Two Railway services, both auto-deploying from `main`:
+- **Backend** → `Dockerfile` + Railway Postgres.
+- **Frontend** → `Dockerfile.frontend`, a standalone Next.js app; the
+  browser calls the backend directly (no server-side relay), which is also
+  what makes IP-based crisis-helpline geolocation work — the backend sees
+  the visitor's real IP on its own, no forwarding hack required.
 
 ```bash
 railway init
-railway add --database postgres           # injects DATABASE_URL
-# set ANTHROPIC_API_KEY, VOYAGE_API_KEY, PINECONE_API_KEY, NEO4J_URI,
+railway add --database postgres
+# backend service: ANTHROPIC_API_KEY, VOYAGE_API_KEY, PINECONE_API_KEY, NEO4J_URI,
 # NEO4J_USERNAME, NEO4J_PASSWORD, NEO4J_DATABASE, TAVILY_API_KEY, BACKEND_JWT_SECRET
-# on the backend service
-
-# backend
 railway up --service backend && railway domain --service backend
 railway service source connect --repo <owner>/<repo> --branch main --service backend
 
-# frontend (separate Railway service, same repo, Dockerfile.frontend)
-railway variables --service frontend --set "BACKEND_URL=<backend domain>"
-# also set on the frontend service: BACKEND_JWT_SECRET (same value as backend's),
-# AUTH_SECRET (openssl rand -base64 32), AUTH_TRUST_HOST=true (Railway sits
-# behind a proxy - Auth.js needs this to trust its X-Forwarded-* headers),
-# AUTH_GOOGLE_ID + AUTH_GOOGLE_SECRET (from a Google Cloud OAuth client -
-# add both `<frontend-domain>/api/auth/callback/google` and
-# `http://localhost:3000/api/auth/callback/google` as authorized redirect URIs)
+# frontend service: BACKEND_URL, BACKEND_JWT_SECRET (same value as backend's),
+# AUTH_SECRET, AUTH_TRUST_HOST=true, AUTH_GOOGLE_ID, AUTH_GOOGLE_SECRET
 railway up --service frontend --ci && railway domain --service frontend
 
-# then set ALLOWED_ORIGINS on the backend to the frontend's Railway domain
-# (required now - the browser calls the backend directly, so real CORS applies)
+# then set ALLOWED_ORIGINS on the backend to the frontend's domain
 ```
 
 ## Status
 
-Deployed and working end-to-end: safety gate, condense/plan/retrieve/synthesize
-agent, corrective router, graph + vector retrieval, web fallback, Postgres
-memory, FastAPI backend, Next.js chat UI, eval harness.
+Deployed and working end-to-end: safety gate, condense/plan/retrieve/
+synthesize agent, corrective retrieval router, graph + vector retrieval,
+web fallback, Postgres memory, Google auth, FastAPI backend, Next.js chat
+UI, eval harness.
