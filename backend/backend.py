@@ -17,7 +17,6 @@ from slowapi.util import get_remote_address
 from src import day_budget
 from src import threads as threads_store
 from src.agent import agent, agent_config, chunk_text, pool, run_agent
-from src.crisis_resources import resolve_country
 from src.usage import UsageTracker
 
 logging.basicConfig(level=logging.INFO)
@@ -122,9 +121,13 @@ class ChatRequest(BaseModel):
     # the room a prompt-injection payload has to work with.
     question: str = Field(min_length=1, max_length=2000)
     thread_id: str | None = None
-    # optional manual override when Accept-Language detection gets the crisis
-    # helpline country wrong (e.g. an English-locale browser physically in BD)
+    # rarely set: explicit override, beats IP geolocation entirely
     country: str | None = Field(default=None, max_length=2)
+    # the visitor's real IP, as seen by the Streamlit frontend - our own
+    # inbound connection would otherwise be the Streamlit server's IP, not the
+    # visitor's (see frontend.py). Used only to geolocate a crisis message's
+    # helplines - never logged, never sent anywhere except the geoip lookup.
+    client_ip: str | None = Field(default=None, max_length=64)
     # anonymous per-browser id (no login) - scopes the sidebar's conversation list
     device_id: str | None = Field(default=None, max_length=64)
 
@@ -180,12 +183,13 @@ def chat(request: Request, body: ChatRequest):
         )
 
     thread_id = body.thread_id or str(uuid4())
-    country = body.country or resolve_country(request.headers.get("accept-language"))
+    client_ip = body.client_ip or _client_ip(request)
     tracker = UsageTracker()  # no ceiling - meter only
     t0 = time.perf_counter()
     try:
         output = run_agent(
-            body.question, thread_id=thread_id, country=country, callbacks=[tracker]
+            body.question, thread_id=thread_id, country=body.country,
+            client_ip=client_ip, callbacks=[tracker],
         )
     except Exception:
         logger.exception("run_agent failed")
@@ -237,10 +241,10 @@ def chat_stream(request: Request, body: ChatRequest):
         )
 
     thread_id = body.thread_id or str(uuid4())
-    country = body.country or resolve_country(request.headers.get("accept-language"))
+    client_ip = body.client_ip or _client_ip(request)
     tracker = UsageTracker()
-    config = agent_config(thread_id, country, [tracker])
-    inp = {"question": body.question, "country": country}
+    config = agent_config(thread_id, body.country, [tracker])
+    inp = {"question": body.question, "country": body.country, "client_ip": client_ip}
 
     def gen():
         t0 = time.perf_counter()

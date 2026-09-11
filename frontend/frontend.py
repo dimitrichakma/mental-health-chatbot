@@ -5,44 +5,6 @@ import uuid
 import requests
 import streamlit as st
 
-# The frontend deploys standalone (frontend/requirements.txt only - no backend
-# deps, and Streamlit Cloud doesn't put the repo's `src` package on the path),
-# so this is a small, deliberately duplicated copy of the country logic in
-# src/crisis_resources.py - keep the two in sync if the country list changes.
-CRISIS_COUNTRY_NAMES = {
-    "BD": "Bangladesh",
-    "US": "United States",
-    "GB": "United Kingdom",
-    "IN": "India",
-    "CA": "Canada",
-    "AU": "Australia",
-    "EU": "Europe",
-}
-_EU_CODES = {
-    "DE", "FR", "ES", "IT", "NL", "BE", "IE", "PT", "AT", "SE", "DK", "FI",
-    "PL", "GR", "CZ", "RO", "HU", "BG", "HR", "SK", "SI", "LT", "LV", "EE",
-    "LU", "MT", "CY",
-}
-
-
-def resolve_country(accept_language):
-    """Best-effort country code from a browser's Accept-Language header, e.g.
-    'bn-BD,bn;q=0.9' -> 'BD'. Used only to show what the backend will likely
-    detect - the backend does its own resolution independently."""
-    if not accept_language:
-        return None
-    try:
-        first = accept_language.split(",")[0].split(";")[0].strip()
-        parts = first.split("-")
-        region = parts[1].upper() if len(parts) > 1 else None
-    except Exception:
-        return None
-    if region in CRISIS_COUNTRY_NAMES:
-        return region
-    if region in _EU_CODES:
-        return "EU"
-    return None
-
 
 def _backend_url():
     # Streamlit Community Cloud: set BACKEND_URL in the app's Secrets.
@@ -185,19 +147,15 @@ def backend_online():
         return False
 
 
-# crisis-helpline country: auto-detected from the browser's own Accept-Language
-# (no picker, no IP geolocation) - but that only reflects browser/OS language,
-# not physical location, so it's wrong for e.g. an English-locale browser
-# outside the US. Detected here (not just in the backend) so the sidebar can
-# show what was picked and offer a one-click override.
+# crisis-helpline country: geolocated server-side from the visitor's IP, and
+# only when a message actually turns out to be a crisis (see src/geoip.py) -
+# no picker, nothing to configure here. requests.post() runs on the Streamlit
+# server though, so its own connecting IP would be Streamlit's, not the
+# visitor's - forward the real one from the request Streamlit itself received.
 try:
-    _accept_language = st.context.headers.get("Accept-Language")
+    _client_ip = (st.context.headers.get("X-Forwarded-For") or "").split(",")[0].strip() or None
 except Exception:
-    _accept_language = None
-_detected_country = resolve_country(_accept_language)
-_COUNTRY_NAMES = {"": "Auto-detect"
-                  + (f" ({CRISIS_COUNTRY_NAMES[_detected_country]})" if _detected_country else "")}
-_COUNTRY_NAMES.update(CRISIS_COUNTRY_NAMES)
+    _client_ip = None
 
 
 # --- sidebar ---
@@ -229,16 +187,6 @@ with st.sidebar:
                 st.session_state.messages = _fetch_history(t["thread_id"])
                 st.session_state.pending = None
                 st.rerun()
-
-    st.divider()
-    st.selectbox(
-        "Country (for crisis helplines)",
-        options=list(_COUNTRY_NAMES),
-        format_func=lambda c: _COUNTRY_NAMES[c],
-        key="country_override",
-        help="Auto-detected from your browser language. If a crisis message ever "
-             "shows the wrong country's helplines, pick the right one here.",
-    )
 
     st.divider()
     st.markdown("**Try an example**")
@@ -336,14 +284,8 @@ if question:
         "question": question,
         "thread_id": st.session_state.thread_id,
         "device_id": st.session_state.device_id,
-        # only set when the sidebar override isn't "Auto-detect"
-        "country": st.session_state.get("country_override") or None,
+        "client_ip": _client_ip,
     }
-
-    # requests.post runs on the Streamlit server, not in the visitor's browser -
-    # forward the browser's own Accept-Language so the backend can localize
-    # crisis helplines automatically when there's no override above.
-    request_headers = {"Accept-Language": _accept_language} if _accept_language else {}
 
     with st.chat_message("assistant", avatar=BOT_AVATAR):
         meta = {"kind": "answer", "paths_used": [], "log_id": None}
@@ -359,8 +301,7 @@ if question:
 
         try:
             with requests.post(
-                f"{BACKEND_URL}/chat/stream", json=payload, headers=request_headers,
-                stream=True, timeout=120,
+                f"{BACKEND_URL}/chat/stream", json=payload, stream=True, timeout=120,
             ) as resp:
                 resp.raise_for_status()
                 for raw in resp.iter_lines():

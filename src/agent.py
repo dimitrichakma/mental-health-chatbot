@@ -21,7 +21,8 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 
 class AgentState(TypedDict):
     question: str
-    country: Optional[str]           # 2-letter code from the UI, for crisis resources
+    country: Optional[str]           # rarely-set override; normally None
+    client_ip: Optional[str]         # visitor IP, geolocated only if crisis
     standalone_question: str
     chat_history: list[dict]
     block_kind: Optional[str]        # "crisis" | "off_topic" | None
@@ -32,7 +33,8 @@ class AgentState(TypedDict):
 
 def safety_node(state: AgentState) -> dict:
     kind, response = screen_message(
-        state["question"], state.get("country"), state.get("chat_history")
+        state["question"], state.get("country"), state.get("chat_history"),
+        state.get("client_ip"),
     )
     return {"block_kind": kind, "block_response": response}
 
@@ -124,9 +126,11 @@ def agent_config(thread_id="default", country=None, callbacks=None):
     return config
 
 
-def run_agent(question, thread_id="default", country=None, callbacks=None):
+def run_agent(question, thread_id="default", country=None, client_ip=None, callbacks=None):
     config = agent_config(thread_id, country, callbacks)
-    result = agent.invoke({"question": question, "country": country}, config=config)
+    result = agent.invoke(
+        {"question": question, "country": country, "client_ip": client_ip}, config=config
+    )
     if result.get("block_kind"):
         return {"answer": result["block_response"], "results": [], "kind": result["block_kind"]}
     return {"answer": result["answer"], "results": result["results"], "kind": "answer"}

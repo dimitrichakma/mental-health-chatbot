@@ -13,6 +13,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from .crisis_resources import CRISIS_RESPONSE, build_crisis_response
+from .geoip import lookup_country
 from .llm import fast_llm
 
 # Fallback only. Used when the LLM classifier below is unreachable. Kept
@@ -74,7 +75,14 @@ def _keyword_hit(text):
     return any(k in lowered for k in CRISIS_KEYWORDS)
 
 
-def screen_message(user_message, country=None, chat_history=None):
+def _resolve_country(country, client_ip):
+    # explicit override always wins (and skips the network call entirely);
+    # otherwise geolocate lazily - only called from the crisis branch below,
+    # so ordinary messages never trigger an IP lookup at all.
+    return country or (lookup_country(client_ip) if client_ip else None)
+
+
+def screen_message(user_message, country=None, chat_history=None, client_ip=None):
     """Return (kind, response):
       ("crisis",   <localized crisis text>)  - stop, show this
       ("off_topic", <polite refusal>)        - stop, show this
@@ -89,6 +97,9 @@ def screen_message(user_message, country=None, chat_history=None):
     chat_history (if given) is shown to the classifier so a short follow-up
     ("tell me more about the first one") isn't judged off-topic in isolation -
     without it, the raw fragment carries no mental-health signal on its own.
+
+    country is an explicit override (rarely set); client_ip is the visitor's
+    IP, geolocated only if a message actually turns out to be a crisis.
     """
     try:
         history_block = ""
@@ -108,13 +119,13 @@ def screen_message(user_message, country=None, chat_history=None):
             f"{history_block}<msg>\n{user_message}\n</msg>"
         )
         if verdict.risk == "high":
-            return "crisis", build_crisis_response(country)
+            return "crisis", build_crisis_response(_resolve_country(country, client_ip))
         if not verdict.on_topic:
             return "off_topic", DOMAIN_REFUSAL
         return None, None
     except Exception:
         if _keyword_hit(user_message):
-            return "crisis", build_crisis_response(country)
+            return "crisis", build_crisis_response(_resolve_country(country, client_ip))
         return None, None
 
 
