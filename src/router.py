@@ -20,7 +20,20 @@ def _submit(pool, fn, *args):
 
 class RouteDecision(BaseModel):
     path: Literal["graph_rag", "naive_rag", "both"] = Field(
-        description="graph_rag for relationships between concepts, causes, symptoms, treatments, or connections between conditions. naive_rag for general explanations or definitions. both if genuinely needed."
+        description=(
+            "graph_rag for relationships between concepts: causes, symptoms, treatments, "
+            "medications, co-occurring or related conditions, diagnostic criteria, subtypes, or "
+            "what a specific thought/belief reflects or exhibits. This includes list or "
+            "enumeration phrasing even when asked conversationally - 'what does X map to', "
+            "'what conditions does X co-occur with', 'what disorders are related to / listed "
+            "under X', 'what subtypes does X have', 'what core beliefs does X reflect' are all "
+            "graph_rag, not naive_rag, even without the word 'graph' or 'ontology' in them.\n"
+            "naive_rag for general explanations or definitions - 'what is X', 'how does X work'.\n"
+            "both when the question asks for a definition AND a relationship/list in the same "
+            "breath (e.g. 'what is X and what Y does it involve/target/map to/list') - the "
+            "definition comes from naive_rag, the list from graph_rag, and you need both to "
+            "answer completely."
+        )
     )
     entity: Optional[str] = Field(
         default=None,
