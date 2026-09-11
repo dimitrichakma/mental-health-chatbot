@@ -26,6 +26,7 @@ docs/
 /eval/ragas_run.csv
 /eval/ragas_smoke.csv
 /eval/ragas_samples.json
+/eval/confirm_run.json
 
 # Clinician-testing materials — kept local
 /eval/clinician_forms.gs
