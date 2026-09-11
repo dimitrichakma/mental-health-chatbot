@@ -191,10 +191,13 @@ def backend_online():
         return False
 
 
-# crisis-helpline country: auto-detected from the browser's own Accept-Language
-# (confirmed real on this host; X-Forwarded-For is not - see the note above).
-# Detected here, not just in the backend, so the sidebar can show the guess
-# and offer a one-click override for when OS language != physical location.
+# crisis-helpline country: real detection is IP-based, done server-side (see
+# src/geoip.py) from the visitor's real public IP - confirmed present via
+# X-Real-Ip / the first hop of X-Forwarded-For on this host (Railway's edge
+# forwards it; Streamlit Community Cloud never did, only internal 10.x hops).
+# Accept-Language is kept only as a rough client-side guess for the sidebar
+# label below - it reflects browser/OS language, not physical location, so
+# it's a fallback preview, not the real signal.
 try:
     _accept_language = st.context.headers.get("Accept-Language")
 except Exception:
@@ -203,6 +206,13 @@ _detected_country = resolve_country(_accept_language)
 _COUNTRY_NAMES = {"": "Auto-detect"
                   + (f" ({CRISIS_COUNTRY_NAMES[_detected_country]})" if _detected_country else "")}
 _COUNTRY_NAMES.update(CRISIS_COUNTRY_NAMES)
+
+try:
+    _client_ip = st.context.headers.get("X-Real-Ip") or (
+        st.context.headers.get("X-Forwarded-For", "").split(",")[0].strip() or None
+    )
+except Exception:
+    _client_ip = None
 
 
 # --- sidebar ---
@@ -213,15 +223,6 @@ with st.sidebar:
 
     online = backend_online()
     st.markdown(f"**Status:** {'🟢 ready' if online else '🔴 unavailable'}")
-
-    # TEMP: checking whether Railway's edge forwards the visitor's real IP to
-    # this container (unlike Streamlit Community Cloud, which only ever
-    # showed internal 10.x hops here). Remove once confirmed either way.
-    with st.expander("debug: raw headers"):
-        try:
-            st.json(dict(st.context.headers))
-        except Exception as e:
-            st.write(f"error: {e}")
 
     st.divider()
     if st.button("🗑️  New conversation", use_container_width=True):
@@ -250,7 +251,7 @@ with st.sidebar:
         options=list(_COUNTRY_NAMES),
         format_func=lambda c: _COUNTRY_NAMES[c],
         key="country_override",
-        help="Auto-detected from your browser language. If a crisis message ever "
+        help="Auto-detected from your IP address. If a crisis message ever "
              "shows the wrong country's helplines, pick the right one here.",
     )
 
@@ -352,6 +353,9 @@ if question:
         "device_id": st.session_state.device_id,
         # only set when the sidebar override isn't "Auto-detect"
         "country": st.session_state.get("country_override") or None,
+        # real signal for crisis-helpline localization when no override is
+        # set - the backend resolves country from this (src/geoip.py)
+        "client_ip": _client_ip,
     }
 
     with st.chat_message("assistant", avatar=BOT_AVATAR):
