@@ -139,6 +139,23 @@ def usage():
     return {"today_usd": round(spent, 4), "daily_limit_usd": limit, "over_budget": over}
 
 
+@app.get("/history/{thread_id}")
+def history(thread_id: str):
+    """The LangGraph checkpointer's chat_history for this thread - lets the UI
+    restore a conversation after a page refresh / lost session, since the
+    checkpoint (Postgres) outlives the browser session. Each entry is just
+    {question, answer}; per-turn metadata (paths_used, log_id) isn't stored
+    server-side, so restored messages won't have source chips or feedback
+    buttons - only the text."""
+    try:
+        state = agent.get_state({"configurable": {"thread_id": thread_id}})
+        chat_history = (state.values or {}).get("chat_history", [])
+    except Exception:
+        logger.exception("history lookup failed for thread %s", thread_id)
+        chat_history = []
+    return {"chat_history": chat_history}
+
+
 @app.post("/chat")
 @limiter.limit(CHAT_RATE_LIMIT)
 def chat(request: Request, body: ChatRequest):

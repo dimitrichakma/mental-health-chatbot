@@ -89,11 +89,36 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+def _fetch_history(thread_id):
+    """Restore a conversation from the backend's LangGraph checkpoint (Postgres)
+    after a page refresh / lost session wipes the browser-side state. Only text
+    survives server-side (no paths_used/log_id per turn), so restored assistant
+    messages show without source chips or feedback buttons."""
+    try:
+        r = requests.get(f"{BACKEND_URL}/history/{thread_id}", timeout=5)
+        r.raise_for_status()
+        restored = []
+        for turn in r.json().get("chat_history", []):
+            restored.append({"role": "user", "text": turn["question"]})
+            restored.append({"role": "assistant", "text": turn["answer"],
+                              "paths_used": [], "kind": None, "log_id": None})
+        return restored
+    except Exception:
+        return []
+
+
 # --- session state ---
+# thread_id lives in the URL (?t=...) so a page refresh / dropped connection
+# keeps the same conversation instead of silently starting a new one - the
+# backend's memory (Postgres) already outlives the browser session, the UI
+# just wasn't asking for it back.
+if "thread_id" not in st.session_state:
+    from_url = st.query_params.get("t")
+    st.session_state.thread_id = from_url or str(uuid.uuid4())
+    st.query_params["t"] = st.session_state.thread_id
+    st.session_state.messages = _fetch_history(st.session_state.thread_id) if from_url else []
 if "messages" not in st.session_state:
     st.session_state.messages = []
-if "thread_id" not in st.session_state:
-    st.session_state.thread_id = str(uuid.uuid4())
 if "pending" not in st.session_state:
     st.session_state.pending = None
 
@@ -125,6 +150,7 @@ with st.sidebar:
     if st.button("🗑️  New conversation", use_container_width=True):
         st.session_state.messages = []
         st.session_state.thread_id = str(uuid.uuid4())
+        st.query_params["t"] = st.session_state.thread_id
         st.session_state.pending = None
         st.rerun()
 
@@ -144,11 +170,14 @@ def render_paths(paths_used):
 def is_crisis(message):
     """message is a stored history dict or a fresh {'kind':..., 'text':...}.
     Prefer the backend's explicit kind; fall back to a text heuristic for
-    history saved before the flag existed."""
+    history restored from the server (/history doesn't carry kind) or saved
+    before the flag existed. The two phrases below are in every crisis
+    response regardless of country (see src/crisis_resources.py), unlike the
+    word 'crisis' itself which isn't in every country's helpline list."""
     if message.get("kind"):
         return message["kind"] == "crisis"
-    answer, paths = message.get("text", ""), message.get("paths_used")
-    return bool(answer) and not paths and "crisis" in answer.lower() and "emergency" in answer.lower()
+    answer = message.get("text", "").lower()
+    return "you don't have to handle this alone" in answer and "emergency number" in answer
 
 
 def _send_feedback(log_id, rating=None, note=None):
