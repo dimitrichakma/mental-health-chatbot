@@ -197,6 +197,15 @@ with st.sidebar:
     st.caption(f"{len(st.session_state.messages) // 2} exchanges · "
                f"thread `{st.session_state.thread_id[:8]}`")
 
+    # TEMP DEBUG - remove once IP detection is confirmed working. Shows what
+    # Streamlit Cloud actually exposes so we're not guessing at header names.
+    with st.expander("🔧 debug: request headers"):
+        st.write("resolved client_ip:", _client_ip)
+        try:
+            st.json(dict(st.context.headers))
+        except Exception as e:
+            st.write("st.context.headers failed:", e)
+
 
 def render_paths(paths_used):
     if not paths_used:
