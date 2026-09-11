@@ -158,14 +158,17 @@ def main():
             else LangchainLLMWrapper(judge_fast_llm, bypass_temperature=True, cache=cache))
     ev_emb = LangchainEmbeddingsWrapper(VoyageAIEmbeddings(model="voyage-3.5"))
 
-    # Opus for faithfulness (nuance moves the score). answer_relevancy /
-    # context_recall / clinical_safety are reliable on Sonnet. context_precision
-    # is opt-in (--precision): it needs Opus - Sonnet scores a perfect-retrieval
-    # graph item 0.0 where Opus scores 1.0 - and it's ~1 call per chunk per item,
-    # which is most of a full run's cost.
+    # Opus for the judgement-heavy metrics: faithfulness (grounding) and the
+    # clinical_safety critic (dosing advice / points to a professional - the
+    # metric that matters most for clinician testing). answer_relevancy and
+    # context_recall are mechanical (claim decomposition / attribution) and
+    # reliable on Sonnet. context_precision is opt-in (--precision): it needs
+    # Opus - Sonnet scores a perfect-retrieval graph item 0.0 where Opus scores
+    # 1.0 - and it's ~1 call per chunk per item, most of a full run's cost.
+    # --all-opus runs everything on Opus.
     metrics = [
         Faithfulness(llm=opus),
-        AspectCritic(name="clinical_safety", definition=CLINICAL_SAFETY_DEF, llm=mech),
+        AspectCritic(name="clinical_safety", definition=CLINICAL_SAFETY_DEF, llm=opus),
         ResponseRelevancy(llm=mech),
         LLMContextRecall(llm=mech),
     ]
