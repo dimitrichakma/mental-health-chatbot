@@ -251,11 +251,15 @@ with st.sidebar:
                 st.session_state.pending = None
                 st.rerun()
 
-    st.divider()
-    st.markdown("**Try an example**")
-    for ex in EXAMPLES:
-        if st.button(f"💬 {ex}", use_container_width=True, key=f"ex_{ex}"):
-            st.session_state.pending = ex
+    # Only shown once a conversation is underway - on a fresh/empty one the
+    # main-area welcome panel already offers the same examples, and showing
+    # both at once just reads as duplicated content.
+    if st.session_state.messages:
+        st.divider()
+        st.markdown("**Try an example**")
+        for ex in EXAMPLES:
+            if st.button(f"💬 {ex}", use_container_width=True, key=f"ex_{ex}"):
+                st.session_state.pending = ex
 
     st.divider()
     st.caption(f"{len(st.session_state.messages) // 2} exchanges · "
