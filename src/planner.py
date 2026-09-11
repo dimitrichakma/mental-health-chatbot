@@ -103,6 +103,7 @@ def run_pipeline(question, chat_history=None):
         return {
             "answer": blocked, "results": [], "standalone_question": question,
             "crisis": kind == "crisis", "off_topic": kind == "off_topic",
+            "retrieved_contexts": [],
         }
 
     standalone, subquestions = prepare_query(question, chat_history)
