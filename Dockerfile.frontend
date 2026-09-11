@@ -1,0 +1,20 @@
+FROM python:3.13-slim
+WORKDIR /app
+
+# frontend/requirements.txt is the deliberately standalone dep list (no
+# backend deps - streamlit, requests only), the same one Streamlit Community
+# Cloud installs from.
+COPY frontend/requirements.txt frontend/requirements.txt
+RUN pip install --no-cache-dir -r frontend/requirements.txt
+
+COPY frontend frontend
+
+EXPOSE 8501
+
+# Railway injects $PORT. --server.address 0.0.0.0 so it's reachable outside
+# the container; headless + no CORS/XSRF since Railway's own edge is the
+# only proxy in front of this (not embedded in an iframe like Streamlit Cloud).
+CMD ["sh", "-c", "streamlit run frontend/frontend.py \
+    --server.port ${PORT:-8501} --server.address 0.0.0.0 \
+    --server.headless true --server.enableCORS false --server.enableXsrfProtection false \
+    --browser.gatherUsageStats false"]
