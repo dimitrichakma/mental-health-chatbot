@@ -11,8 +11,8 @@ import streamlit as st
 # src/crisis_resources.py - keep the two in sync if the country list changes.
 CRISIS_COUNTRY_NAMES = {
     "BD": "Bangladesh",
-    "US": "the United States",
-    "GB": "the United Kingdom",
+    "US": "United States",
+    "GB": "United Kingdom",
     "IN": "India",
     "CA": "Canada",
     "AU": "Australia",
