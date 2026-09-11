@@ -5,7 +5,7 @@ knowledge graph + a Pinecone vector store), a **corrective-retrieval router**, a
 **LangGraph agent** with conversation memory, and a **live web-search fallback**
 that vets, chunks, and ingests new sources on the fly.
 
-**Live app:** https://mental-health-chatbot-dimitri.streamlit.app · **API:** https://backend-production-63da.up.railway.app
+**Live app:** https://mental-health-chatbot.up.railway.app · **API:** https://backend-production-63da.up.railway.app
 
 > Personal learning project. Not medical advice.
 
@@ -193,12 +193,13 @@ while iterating.
 
 ## Deployment
 
-- **Backend** → Railway (`Dockerfile`, backend deps only) + Railway Postgres.
-  `railway.toml` sets the Docker builder and a `/health` check. Auto-deploys
-  from `main`.
-- **Frontend** → Streamlit Community Cloud (`frontend/frontend.py`,
-  `frontend/requirements.txt`). `BACKEND_URL` is set in the app's Secrets.
-  Auto-deploys from `main`.
+Both services run on Railway, each auto-deploying from `main`:
+
+- **Backend** → `Dockerfile` (backend deps only) + Railway Postgres.
+  `railway.toml` sets the Docker builder and a `/health` check.
+- **Frontend** → `Dockerfile.frontend` (`streamlit`, `requests` only —
+  deliberately standalone, no `src` import). `BACKEND_URL` is set as a
+  Railway variable on the frontend service.
 
 First-time setup:
 
@@ -206,10 +207,17 @@ First-time setup:
 railway init
 railway add --database postgres           # injects DATABASE_URL
 # set ANTHROPIC_API_KEY, VOYAGE_API_KEY, PINECONE_API_KEY, NEO4J_URI,
-# NEO4J_USERNAME, NEO4J_PASSWORD, NEO4J_DATABASE, TAVILY_API_KEY on the service
-railway up && railway domain
+# NEO4J_USERNAME, NEO4J_PASSWORD, NEO4J_DATABASE, TAVILY_API_KEY on the backend service
+
+# backend
+railway up --service backend && railway domain --service backend
 railway service source connect --repo <owner>/<repo> --branch main --service backend
-# then set ALLOWED_ORIGINS to the deployed Streamlit URL
+
+# frontend (separate Railway service, same repo, Dockerfile.frontend)
+railway variables --service frontend --set "BACKEND_URL=<backend domain>"
+railway up --service frontend --ci && railway domain --service frontend
+
+# then set ALLOWED_ORIGINS on the backend to the frontend's Railway domain
 ```
 
 ## Status
