@@ -1,3 +1,0 @@
-# Streamlit Community Cloud installs from this file (it lives next to the app).
-streamlit>=1.63.0
-requests>=2.34.2

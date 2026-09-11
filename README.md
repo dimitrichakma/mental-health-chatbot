@@ -57,7 +57,7 @@ the synthesized answer token-by-token over SSE (`POST /chat/stream`); `POST
 src/                 runtime package (agent, router, planner, retrieval,
                      grading, safety, web_search_fallback)
 backend/backend.py   FastAPI: POST /chat, GET /health
-frontend/frontend.py Streamlit chat UI
+frontend/            Next.js + Tailwind chat UI (app/, components/, lib/)
 data_prep/           one-off build scripts (chunk, embed, load graph)
 data/                source datasets + generated artifacts — NOT in the repo,
                      rebuild with data_prep/ (see below)
@@ -94,10 +94,13 @@ CSV must be supplied separately.
 
 ```bash
 uvicorn backend.backend:app --port 8000     # API  (POST /chat, /feedback, GET /health)
-streamlit run frontend/frontend.py          # chat UI  ->  http://localhost:8501
+cd frontend && npm install && npm run dev   # chat UI  ->  http://localhost:3000
 ```
 
-The Streamlit app reads `BACKEND_URL` (default `http://localhost:8000`).
+The frontend calls the backend directly from the browser (`NEXT_PUBLIC_BACKEND_URL`,
+default `http://localhost:8000` for `npm run dev`; baked in at Docker build time in
+deploy - see Deployment below), so the backend's `ALLOWED_ORIGINS` CORS setting must
+include wherever the frontend is served from.
 
 ## Conversation logging & feedback
 
@@ -197,9 +200,15 @@ Both services run on Railway, each auto-deploying from `main`:
 
 - **Backend** → `Dockerfile` (backend deps only) + Railway Postgres.
   `railway.toml` sets the Docker builder and a `/health` check.
-- **Frontend** → `Dockerfile.frontend` (`streamlit`, `requests` only —
-  deliberately standalone, no `src` import). `BACKEND_URL` is set as a
-  Railway variable on the frontend service.
+- **Frontend** → `Dockerfile.frontend`, a Next.js + Tailwind app (deliberately
+  standalone - its own `package.json`, no dependency on the backend's Python
+  code). `BACKEND_URL` is set as a Railway variable on the frontend service;
+  Railway passes service variables as Docker build args automatically, so the
+  Dockerfile bakes it into the client bundle as `NEXT_PUBLIC_BACKEND_URL` at
+  build time (Next.js can't read env vars at runtime for client code).
+  The browser calls the backend directly (no server-side relay), so it needs
+  its own IP visible to the backend for crisis-helpline geolocation
+  (`src/geoip.py`) - no special wiring required, just real CORS.
 
 First-time setup:
 
@@ -218,10 +227,11 @@ railway variables --service frontend --set "BACKEND_URL=<backend domain>"
 railway up --service frontend --ci && railway domain --service frontend
 
 # then set ALLOWED_ORIGINS on the backend to the frontend's Railway domain
+# (required now - the browser calls the backend directly, so real CORS applies)
 ```
 
 ## Status
 
 Deployed and working end-to-end: safety gate, condense/plan/retrieve/synthesize
 agent, corrective router, graph + vector retrieval, web fallback, Postgres
-memory, FastAPI backend, Streamlit chat UI, eval harness.
+memory, FastAPI backend, Next.js chat UI, eval harness.

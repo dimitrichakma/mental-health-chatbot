@@ -1,0 +1,46 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+/* Enables `dark:` classes to key off a `.dark` class on <html> (toggled in
+   ThemeToggle.tsx) instead of only `prefers-color-scheme`, so the manual
+   light/dark switch actually overrides the system default. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+.dark {
+  --background: #0b0f13;
+  --foreground: #e8eaed;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+}
+
+@keyframes thinking-dots {
+  0% {
+    width: 0;
+  }
+  100% {
+    width: 1.1em;
+  }
+}
+.thinking::after {
+  content: "\2026";
+  display: inline-block;
+  width: 1em;
+  overflow: hidden;
+  animation: thinking-dots 1.1s steps(4, end) infinite;
+}

@@ -20,3 +20,9 @@ railway.toml
 evaluate.py
 review_logs.py
 review_logs.sql
+
+# frontend (Next.js) - keep the Docker build hermetic: always `npm ci` fresh
+# inside the image rather than risk copying host-built, wrong-platform
+# native binaries (lightningcss, @next/swc) into a Linux container.
+frontend/node_modules
+frontend/.next
