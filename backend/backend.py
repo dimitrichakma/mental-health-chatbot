@@ -16,6 +16,7 @@ from slowapi.util import get_remote_address
 
 from src import day_budget
 from src.agent import agent, agent_config, chunk_text, pool, run_agent
+from src.crisis_resources import resolve_country
 from src.usage import UsageTracker
 
 logging.basicConfig(level=logging.INFO)
@@ -119,7 +120,6 @@ class ChatRequest(BaseModel):
     # the room a prompt-injection payload has to work with.
     question: str = Field(min_length=1, max_length=2000)
     thread_id: str | None = None
-    country: str | None = Field(default=None, max_length=2)  # 2-letter code for crisis resources
 
 
 class Feedback(BaseModel):
@@ -150,11 +150,12 @@ def chat(request: Request, body: ChatRequest):
         )
 
     thread_id = body.thread_id or str(uuid4())
+    country = resolve_country(request.headers.get("accept-language"))
     tracker = UsageTracker()  # no ceiling - meter only
     t0 = time.perf_counter()
     try:
         output = run_agent(
-            body.question, thread_id=thread_id, country=body.country, callbacks=[tracker]
+            body.question, thread_id=thread_id, country=country, callbacks=[tracker]
         )
     except Exception:
         logger.exception("run_agent failed")
@@ -204,9 +205,10 @@ def chat_stream(request: Request, body: ChatRequest):
         )
 
     thread_id = body.thread_id or str(uuid4())
+    country = resolve_country(request.headers.get("accept-language"))
     tracker = UsageTracker()
-    config = agent_config(thread_id, body.country, [tracker])
-    inp = {"question": body.question, "country": body.country}
+    config = agent_config(thread_id, country, [tracker])
+    inp = {"question": body.question, "country": country}
 
     def gen():
         t0 = time.perf_counter()

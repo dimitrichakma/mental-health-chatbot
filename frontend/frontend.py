@@ -28,18 +28,6 @@ PATH_LABELS = {
     "no_answer": "no source found",
 }
 
-# used only to localize the crisis-support message; never inferred / geolocated
-COUNTRIES = {
-    "": "Not specified",
-    "BD": "Bangladesh",
-    "US": "United States",
-    "GB": "United Kingdom",
-    "IN": "India",
-    "CA": "Canada",
-    "AU": "Australia",
-    "EU": "Europe (other)",
-}
-
 EXAMPLES = [
     "What is cognitive restructuring?",
     "What cognitive distortions does CBT target?",
@@ -126,15 +114,6 @@ with st.sidebar:
 
     online = backend_online()
     st.markdown(f"**Status:** {'🟢 ready' if online else '🔴 unavailable'}")
-
-    st.divider()
-    st.selectbox(
-        "Country (for crisis-support resources)",
-        options=list(COUNTRIES),
-        format_func=lambda c: COUNTRIES[c],
-        key="country",
-        help="Only used to show local helplines if a message signals a crisis.",
-    )
 
     st.divider()
     st.markdown("**Try an example**")
@@ -232,11 +211,18 @@ if question:
     with st.chat_message("user", avatar=USER_AVATAR):
         st.markdown(question)
 
-    payload = {
-        "question": question,
-        "thread_id": st.session_state.thread_id,
-        "country": st.session_state.get("country") or None,
-    }
+    payload = {"question": question, "thread_id": st.session_state.thread_id}
+
+    # requests.post runs on the Streamlit server, not in the visitor's browser -
+    # forward the browser's own Accept-Language so the backend can localize
+    # crisis helplines automatically (no country picker, no IP geolocation).
+    request_headers = {}
+    try:
+        lang = st.context.headers.get("Accept-Language")
+        if lang:
+            request_headers["Accept-Language"] = lang
+    except Exception:
+        pass
 
     with st.chat_message("assistant", avatar=BOT_AVATAR):
         meta = {"kind": "answer", "paths_used": [], "log_id": None}
@@ -252,7 +238,8 @@ if question:
 
         try:
             with requests.post(
-                f"{BACKEND_URL}/chat/stream", json=payload, stream=True, timeout=120
+                f"{BACKEND_URL}/chat/stream", json=payload, headers=request_headers,
+                stream=True, timeout=120,
             ) as resp:
                 resp.raise_for_status()
                 for raw in resp.iter_lines():
