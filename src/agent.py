@@ -31,7 +31,9 @@ class AgentState(TypedDict):
     answer: Optional[str]
 
 def safety_node(state: AgentState) -> dict:
-    kind, response = screen_message(state["question"], state.get("country"))
+    kind, response = screen_message(
+        state["question"], state.get("country"), state.get("chat_history")
+    )
     return {"block_kind": kind, "block_response": response}
 
 def prepare_node(state: AgentState) -> dict:

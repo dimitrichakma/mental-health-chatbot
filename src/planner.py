@@ -98,7 +98,7 @@ def run_pipeline(question, chat_history=None):
     -> route/retrieve -> synthesize. Used by the offline eval and any
     non-stateful caller. On a crisis it short-circuits exactly like the agent.
     """
-    kind, blocked = screen_message(question)
+    kind, blocked = screen_message(question, chat_history=chat_history)
     if kind:
         return {
             "answer": blocked, "results": [], "standalone_question": question,
