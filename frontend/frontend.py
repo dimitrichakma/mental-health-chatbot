@@ -5,7 +5,43 @@ import uuid
 import requests
 import streamlit as st
 
-from src.crisis_resources import CRISIS_RESOURCES, resolve_country
+# The frontend deploys standalone (frontend/requirements.txt only - no backend
+# deps, and Streamlit Cloud doesn't put the repo's `src` package on the path),
+# so this is a small, deliberately duplicated copy of the country logic in
+# src/crisis_resources.py - keep the two in sync if the country list changes.
+CRISIS_COUNTRY_NAMES = {
+    "BD": "Bangladesh",
+    "US": "the United States",
+    "GB": "the United Kingdom",
+    "IN": "India",
+    "CA": "Canada",
+    "AU": "Australia",
+    "EU": "Europe",
+}
+_EU_CODES = {
+    "DE", "FR", "ES", "IT", "NL", "BE", "IE", "PT", "AT", "SE", "DK", "FI",
+    "PL", "GR", "CZ", "RO", "HU", "BG", "HR", "SK", "SI", "LT", "LV", "EE",
+    "LU", "MT", "CY",
+}
+
+
+def resolve_country(accept_language):
+    """Best-effort country code from a browser's Accept-Language header, e.g.
+    'bn-BD,bn;q=0.9' -> 'BD'. Used only to show what the backend will likely
+    detect - the backend does its own resolution independently."""
+    if not accept_language:
+        return None
+    try:
+        first = accept_language.split(",")[0].split(";")[0].strip()
+        parts = first.split("-")
+        region = parts[1].upper() if len(parts) > 1 else None
+    except Exception:
+        return None
+    if region in CRISIS_COUNTRY_NAMES:
+        return region
+    if region in _EU_CODES:
+        return "EU"
+    return None
 
 
 def _backend_url():
@@ -143,9 +179,9 @@ try:
 except Exception:
     _accept_language = None
 _detected_country = resolve_country(_accept_language)
-_COUNTRY_NAMES = {"": f"Auto-detect"
-                  + (f" ({CRISIS_RESOURCES[_detected_country][0]})" if _detected_country else "")}
-_COUNTRY_NAMES.update({code: entry[0] for code, entry in CRISIS_RESOURCES.items()})
+_COUNTRY_NAMES = {"": "Auto-detect"
+                  + (f" ({CRISIS_COUNTRY_NAMES[_detected_country]})" if _detected_country else "")}
+_COUNTRY_NAMES.update(CRISIS_COUNTRY_NAMES)
 
 
 # --- sidebar ---
