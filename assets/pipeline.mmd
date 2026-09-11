@@ -1,27 +1,30 @@
 flowchart TD
-    Q([user question]) --> SAFE{{safety<br/>LLM crisis check}}
-    SAFE -->|high risk| CRISIS[crisis response]:::stop
-    SAFE -->|ok| COND[condense<br/>rewrite as standalone question<br/>using chat history]
-    COND --> PLAN[plan<br/>split into 1–3 sub-questions]
-    PLAN --> RET
+    Q([user question]) --> SAFE{{safety<br/>crisis risk + on-topic?<br/>sees recent chat history}}
+    Q --> PREP[prepare<br/>condense + plan · one call<br/>runs in parallel with safety]
+    SAFE --> GATE{gate}
+    PREP --> GATE
+    GATE -->|crisis| CRISIS[localized crisis helplines<br/>by country]:::stop
+    GATE -->|off-topic| REFUSE[polite decline]:::stop
+    GATE -->|ok| RET
 
-    subgraph RET [retrieve · runs per sub-question]
+    subgraph RET [retrieve · per sub-question, parallel]
         direction TB
-        CLS[router: classify path<br/>graph_rag / naive_rag / both<br/>+ extract entity] --> R1[graph traversal<br/>and / or vector search]
+        SPEC[classify path graph_rag / naive_rag / both<br/>+ speculative vector search, in parallel] --> R1[graph traversal<br/>and / or vector search]
         R1 --> GR1{relevance<br/>grader}
         GR1 -->|correct| KEEP[keep context]:::ok
         GR1 -->|weak| ALT[try the other path]
         ALT --> GR2{relevance<br/>grader}
         GR2 -->|correct| KEEP
-        GR2 -->|weak| WEB[web search<br/>vet → chunk → embed → Pinecone]
+        GR2 -->|weak| WEB[web search<br/>vet → chunk → use this turn<br/>embed + ingest in background]
         WEB --> GR3{relevance<br/>grader}
         GR3 -->|correct| KEEP
         GR3 -->|off-topic| NA[no_answer]:::stop
     end
 
-    RET --> SYN[synthesize<br/>answer from retrieved context only<br/>· cites graph vs. text · refuses to guess]
-    SYN --> A([answer + sources])
+    RET --> SYN[synthesize · Sonnet 5<br/>streams tokens to the UI<br/>concise · educational framing<br/>professional-guidance note on meds]
+    SYN --> A([answer, streamed])
     CRISIS --> A
+    REFUSE --> A
 
     classDef stop fill:#fde2e2,stroke:#e57373,color:#7a1f1f;
     classDef ok fill:#e2f5e9,stroke:#66bb6a,color:#1b5e20;
