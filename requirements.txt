@@ -18,10 +18,9 @@ tavily-python>=0.8.1
 psycopg[binary]>=3.3.5
 psycopg-pool>=3.3.1
 python-dotenv>=1.2.3
+pyjwt>=2.10.1
 
-# --- frontend (Streamlit UI) ---
-streamlit>=1.63.0
-requests>=2.34.2
+# --- frontend (Next.js UI) --- see frontend/package.json, not a Python dep
 
 # --- data prep (build scripts only) ---
 pandas>=3.0.5

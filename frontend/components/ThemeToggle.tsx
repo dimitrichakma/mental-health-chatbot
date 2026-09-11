@@ -18,6 +18,9 @@ export default function ThemeToggle() {
       (window.matchMedia("(prefers-color-scheme: dark)").matches
         ? "dark"
         : "light");
+    // client-only (localStorage/matchMedia) - can't run during SSR, so this
+    // has to be an effect rather than a useState initializer.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setTheme(initial);
     applyTheme(initial);
   }, []);

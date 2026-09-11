@@ -1,22 +1,24 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import {
-  getOrCreateDeviceId,
-  getThreadIdFromUrl,
-  newThreadId,
-  setThreadId as persistThreadId,
-} from "@/lib/identity";
+import { useSession } from "next-auth/react";
 import { fetchHistory, streamChat } from "@/lib/api";
 import { EXAMPLES } from "@/lib/constants";
 import type { ChatMessage, StreamEvent } from "@/lib/types";
 import Header from "@/components/Header";
 import Sidebar from "@/components/Sidebar";
 import MessageBubble from "@/components/MessageBubble";
+import SignInGate from "@/components/SignInGate";
 
 export default function Home() {
-  const [ready, setReady] = useState(false);
-  const [deviceId, setDeviceId] = useState("");
+  const { status } = useSession();
+
+  // thread_id is generated client-side only (crypto.randomUUID in an
+  // effect, not a useState initializer) so the server-rendered shell and
+  // the first client render always agree - no value to reconcile, no
+  // hydration mismatch. There's no URL/localStorage persistence by design:
+  // a refresh starts a fresh conversation, and every past one is still one
+  // click away in the sidebar (backed by the account, not the browser).
   const [threadId, setThreadIdState] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -24,44 +26,35 @@ export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // identity + restore-from-URL only makes sense client-side (localStorage,
-  // window.location) - same reason the old Streamlit app kept this in
-  // st.session_state instead of doing it at import time.
   useEffect(() => {
-    const d = getOrCreateDeviceId();
-    setDeviceId(d);
-    const fromUrl = getThreadIdFromUrl();
-    const t = fromUrl || newThreadId();
-    setThreadIdState(t);
-    persistThreadId(t);
-    if (fromUrl) {
-      fetchHistory(t).then(setMessages).finally(() => setReady(true));
-    } else {
-      setReady(true);
+    if (status === "authenticated" && !threadId) {
+      // client-only id generation, deliberately not a useState initializer -
+      // keeps the server-rendered shell and first client render identical
+      // (see the comment on threadId's declaration above).
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setThreadIdState(crypto.randomUUID());
     }
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, sending]);
 
   function startNewConversation() {
-    const t = newThreadId();
-    setThreadIdState(t);
-    persistThreadId(t);
+    setThreadIdState(crypto.randomUUID());
     setMessages([]);
     setSidebarOpen(false);
   }
 
   async function switchThread(id: string) {
     setThreadIdState(id);
-    persistThreadId(id);
     setSidebarOpen(false);
     setMessages(await fetchHistory(id));
   }
 
   async function ask(question: string) {
-    if (!question.trim() || sending) return;
+    if (!question.trim() || sending || !threadId) return;
     setInput("");
     setSending(true);
     setMessages((prev) => [...prev, { role: "user", text: question }]);
@@ -100,7 +93,6 @@ export default function Home() {
       await streamChat({
         question,
         threadId,
-        deviceId,
         onEvent: (evt: StreamEvent) => {
           if (evt.type === "meta") {
             meta.kind = evt.kind ?? meta.kind;
@@ -134,12 +126,22 @@ export default function Home() {
     ask(input);
   }
 
-  if (!ready) return null;
+  if (status === "loading") return null;
+  if (status === "unauthenticated") {
+    return (
+      <div className="flex flex-1 flex-col">
+        <div className="mx-auto w-full max-w-3xl px-4 pt-4 sm:px-6">
+          <Header />
+        </div>
+        <SignInGate />
+      </div>
+    );
+  }
+  if (!threadId) return null; // brief - waiting on the client-only id effect
 
   return (
     <div className="flex flex-1">
       <Sidebar
-        deviceId={deviceId}
         currentThreadId={threadId}
         exchangeCount={Math.floor(messages.length / 2)}
         hasMessages={messages.length > 0}

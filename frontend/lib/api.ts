@@ -5,6 +5,39 @@ import type { ChatMessage, StreamEvent, ThreadSummary } from "./types";
 export const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
 
+// --- auth: short-lived backend token ---
+// GET /api/backend-token (route.ts) verifies the NextAuth session
+// server-side and mints a 10-min HS256 token the backend can verify on its
+// own (see src/auth.py). Cached here and refreshed a bit before it expires
+// so most calls don't pay the extra round trip.
+let cachedToken: { value: string; expiresAt: number } | null = null;
+
+async function getAuthToken(): Promise<string | null> {
+  if (cachedToken && cachedToken.expiresAt > Date.now()) {
+    return cachedToken.value;
+  }
+  try {
+    const res = await fetch("/api/backend-token", { cache: "no-store" });
+    if (!res.ok) return null;
+    const { token } = await res.json();
+    cachedToken = { value: token, expiresAt: Date.now() + 8 * 60 * 1000 }; // refresh 2 min early
+    return token;
+  } catch {
+    return null;
+  }
+}
+
+/** Call after sign-out so a stale token can never leak into the next session
+ * sharing this tab/module state. */
+export function clearAuthToken() {
+  cachedToken = null;
+}
+
+async function authHeaders(): Promise<Record<string, string>> {
+  const token = await getAuthToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 export async function checkBackendOnline(): Promise<boolean> {
   try {
     const res = await fetch(`${BACKEND_URL}/health`, {
@@ -24,6 +57,7 @@ export async function checkBackendOnline(): Promise<boolean> {
 export async function fetchHistory(threadId: string): Promise<ChatMessage[]> {
   try {
     const res = await fetch(`${BACKEND_URL}/history/${threadId}`, {
+      headers: await authHeaders(),
       signal: AbortSignal.timeout(5000),
       cache: "no-store",
     });
@@ -46,14 +80,15 @@ export async function fetchHistory(threadId: string): Promise<ChatMessage[]> {
   }
 }
 
-/** The sidebar's past-conversations list for this device. Best-effort - an
- * empty list just means the sidebar section doesn't render. */
-export async function fetchThreads(deviceId: string): Promise<ThreadSummary[]> {
+/** The sidebar's past-conversations list for the signed-in user. Best-effort
+ * - an empty list just means the sidebar section doesn't render. */
+export async function fetchThreads(): Promise<ThreadSummary[]> {
   try {
-    const res = await fetch(
-      `${BACKEND_URL}/threads?device_id=${encodeURIComponent(deviceId)}`,
-      { signal: AbortSignal.timeout(5000), cache: "no-store" }
-    );
+    const res = await fetch(`${BACKEND_URL}/threads`, {
+      headers: await authHeaders(),
+      signal: AbortSignal.timeout(5000),
+      cache: "no-store",
+    });
     if (!res.ok) return [];
     const data = await res.json();
     return data.threads ?? [];
@@ -69,7 +104,7 @@ export async function sendFeedback(
   try {
     await fetch(`${BACKEND_URL}/feedback`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...(await authHeaders()) },
       body: JSON.stringify({ log_id: logId, ...opts }),
       signal: AbortSignal.timeout(15000),
     });
@@ -81,7 +116,6 @@ export async function sendFeedback(
 interface StreamChatArgs {
   question: string;
   threadId: string;
-  deviceId: string;
   onEvent: (evt: StreamEvent) => void;
   signal?: AbortSignal;
 }
@@ -89,25 +123,26 @@ interface StreamChatArgs {
 /** Streams POST /chat/stream (text/event-stream, `data: {...}\n\n` frames -
  * see backend/backend.py's _sse()) and calls onEvent per parsed frame.
  *
- * This is a real browser->backend fetch (not a server-side relay like the
- * old Streamlit app's `requests.post`), so the backend sees the visitor's
- * actual IP via X-Forwarded-For on its own - no client_ip forwarding hack
- * needed for crisis-helpline geolocation (src/geoip.py) anymore. */
+ * This is a real browser->backend fetch (not a server-side relay), so the
+ * backend sees the visitor's actual IP via X-Forwarded-For on its own - no
+ * client_ip forwarding needed for crisis-helpline geolocation
+ * (src/geoip.py). Identity instead comes from the Authorization header. */
 export async function streamChat({
   question,
   threadId,
-  deviceId,
   onEvent,
   signal,
 }: StreamChatArgs): Promise<void> {
+  const token = await getAuthToken();
+  if (!token) throw new Error("not signed in");
+
   const res = await fetch(`${BACKEND_URL}/chat/stream`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      question,
-      thread_id: threadId,
-      device_id: deviceId,
-    }),
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ question, thread_id: threadId }),
     signal,
   });
   if (!res.ok || !res.body) {

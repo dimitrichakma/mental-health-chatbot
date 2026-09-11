@@ -55,9 +55,10 @@ the synthesized answer token-by-token over SSE (`POST /chat/stream`); `POST
 
 ```
 src/                 runtime package (agent, router, planner, retrieval,
-                     grading, safety, web_search_fallback)
+                     grading, safety, web_search_fallback, auth)
 backend/backend.py   FastAPI: POST /chat, GET /health
-frontend/            Next.js + Tailwind chat UI (app/, components/, lib/)
+frontend/            Next.js + Tailwind chat UI (app/, components/, lib/,
+                     auth.ts - Google sign-in via Auth.js)
 data_prep/           one-off build scripts (chunk, embed, load graph)
 data/                source datasets + generated artifacts — NOT in the repo,
                      rebuild with data_prep/ (see below)
@@ -101,6 +102,11 @@ The frontend calls the backend directly from the browser (`NEXT_PUBLIC_BACKEND_U
 default `http://localhost:8000` for `npm run dev`; baked in at Docker build time in
 deploy - see Deployment below), so the backend's `ALLOWED_ORIGINS` CORS setting must
 include wherever the frontend is served from.
+
+Signing in locally needs `frontend/.env.local` (gitignored) with `AUTH_SECRET`,
+`AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`, and `BACKEND_JWT_SECRET` (matching whatever
+the backend process has in its own env) - see Deployment's Auth section below for
+where these come from.
 
 ## Conversation logging & feedback
 
@@ -210,13 +216,26 @@ Both services run on Railway, each auto-deploying from `main`:
   its own IP visible to the backend for crisis-helpline geolocation
   (`src/geoip.py`) - no special wiring required, just real CORS.
 
+**Auth.** Google sign-in via [Auth.js](https://authjs.dev) v5 (`frontend/auth.ts`).
+Session cookies stay on the frontend only - the backend never sees them.
+Instead, `app/api/backend-token/route.ts` (server-side, after verifying the
+NextAuth session) mints a short-lived HS256 JWT signed with `BACKEND_JWT_SECRET`,
+which the browser sends as `Authorization: Bearer <token>` on every FastAPI
+call; `src/auth.py` verifies it there. `BACKEND_JWT_SECRET` is a plain shared
+secret - generate one (`openssl rand -hex 32`) and set it on **both**
+services. Threads/conversation_log are keyed by the verified Google account
+id (`sub`), not a client-supplied value - replaces the old anonymous
+`device_id` scheme (and closes the hole where any caller could set that to
+anything).
+
 First-time setup:
 
 ```bash
 railway init
 railway add --database postgres           # injects DATABASE_URL
 # set ANTHROPIC_API_KEY, VOYAGE_API_KEY, PINECONE_API_KEY, NEO4J_URI,
-# NEO4J_USERNAME, NEO4J_PASSWORD, NEO4J_DATABASE, TAVILY_API_KEY on the backend service
+# NEO4J_USERNAME, NEO4J_PASSWORD, NEO4J_DATABASE, TAVILY_API_KEY, BACKEND_JWT_SECRET
+# on the backend service
 
 # backend
 railway up --service backend && railway domain --service backend
@@ -224,6 +243,12 @@ railway service source connect --repo <owner>/<repo> --branch main --service bac
 
 # frontend (separate Railway service, same repo, Dockerfile.frontend)
 railway variables --service frontend --set "BACKEND_URL=<backend domain>"
+# also set on the frontend service: BACKEND_JWT_SECRET (same value as backend's),
+# AUTH_SECRET (openssl rand -base64 32), AUTH_TRUST_HOST=true (Railway sits
+# behind a proxy - Auth.js needs this to trust its X-Forwarded-* headers),
+# AUTH_GOOGLE_ID + AUTH_GOOGLE_SECRET (from a Google Cloud OAuth client -
+# add both `<frontend-domain>/api/auth/callback/google` and
+# `http://localhost:3000/api/auth/callback/google` as authorized redirect URIs)
 railway up --service frontend --ci && railway domain --service frontend
 
 # then set ALLOWED_ORIGINS on the backend to the frontend's Railway domain

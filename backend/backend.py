@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from uuid import uuid4
 
 import psycopg
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -17,6 +17,7 @@ from slowapi.util import get_remote_address
 from src import day_budget
 from src import threads as threads_store
 from src.agent import agent, agent_config, chunk_text, pool, run_agent
+from src.auth import CurrentUser, get_current_user
 from src.usage import UsageTracker
 
 logging.basicConfig(level=logging.INFO)
@@ -24,11 +25,11 @@ logger = logging.getLogger("backend")
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-# allowed browser origins for the Streamlit frontend. defaults to local dev;
+# allowed browser origins for the Next.js frontend. defaults to local dev;
 # in deploy set ALLOWED_ORIGINS to a comma-separated list of frontend URLs.
 ALLOWED_ORIGINS = [
     o.strip()
-    for o in os.getenv("ALLOWED_ORIGINS", "http://localhost:8501").split(",")
+    for o in os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
     if o.strip()
 ]
 
@@ -43,6 +44,7 @@ CREATE TABLE IF NOT EXISTS conversation_log (
     id            BIGSERIAL PRIMARY KEY,
     ts            TIMESTAMPTZ NOT NULL DEFAULT now(),
     thread_id     TEXT,
+    user_id       TEXT,
     question      TEXT NOT NULL,
     answer        TEXT NOT NULL,
     paths_used    JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -54,7 +56,10 @@ CREATE TABLE IF NOT EXISTS conversation_log (
     feedback_ts   TIMESTAMPTZ
 )
 """
-_LOG_TABLE_MIGRATE = "ALTER TABLE conversation_log ADD COLUMN IF NOT EXISTS cost_usd NUMERIC(12, 6)"
+_LOG_TABLE_MIGRATE = [
+    "ALTER TABLE conversation_log ADD COLUMN IF NOT EXISTS cost_usd NUMERIC(12, 6)",
+    "ALTER TABLE conversation_log ADD COLUMN IF NOT EXISTS user_id TEXT",
+]
 
 
 def _client_ip(request: Request) -> str:
@@ -73,7 +78,8 @@ async def lifespan(app: FastAPI):
         try:
             with psycopg.connect(DATABASE_URL, autocommit=True) as conn:
                 conn.execute(_LOG_TABLE_SQL)
-                conn.execute(_LOG_TABLE_MIGRATE)
+                for stmt in _LOG_TABLE_MIGRATE:
+                    conn.execute(stmt)
             day_budget.setup()
             threads_store.setup()
             logger.info("conversation_log + daily_usage + threads tables ready")
@@ -97,17 +103,17 @@ app.add_middleware(
 )
 
 
-def _log_conversation(thread_id, question, answer, paths_used, is_crisis, latency_ms, cost_usd):
+def _log_conversation(thread_id, user_id, question, answer, paths_used, is_crisis, latency_ms, cost_usd):
     if not DATABASE_URL:
         return None
     try:
         with psycopg.connect(DATABASE_URL, autocommit=True) as conn:
             row = conn.execute(
                 """INSERT INTO conversation_log
-                       (thread_id, question, answer, paths_used, is_crisis, latency_ms, cost_usd)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s)
+                       (thread_id, user_id, question, answer, paths_used, is_crisis, latency_ms, cost_usd)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                    RETURNING id""",
-                (thread_id, question, answer, json.dumps(paths_used), is_crisis,
+                (thread_id, user_id, question, answer, json.dumps(paths_used), is_crisis,
                  latency_ms, cost_usd),
             ).fetchone()
             return row[0]
@@ -123,13 +129,11 @@ class ChatRequest(BaseModel):
     thread_id: str | None = None
     # rarely set: explicit override, beats IP geolocation entirely
     country: str | None = Field(default=None, max_length=2)
-    # the visitor's real IP, as seen by the Streamlit frontend - our own
-    # inbound connection would otherwise be the Streamlit server's IP, not the
-    # visitor's (see frontend.py). Used only to geolocate a crisis message's
+    # the visitor's real IP - the browser calls this API directly (no relay),
+    # so this is normally None and _client_ip(request) below is used instead;
+    # kept as a rare override. Used only to geolocate a crisis message's
     # helplines - never logged, never sent anywhere except the geoip lookup.
     client_ip: str | None = Field(default=None, max_length=64)
-    # anonymous per-browser id (no login) - scopes the sidebar's conversation list
-    device_id: str | None = Field(default=None, max_length=64)
 
 
 class Feedback(BaseModel):
@@ -150,13 +154,20 @@ def usage():
 
 
 @app.get("/history/{thread_id}")
-def history(thread_id: str):
+def history(thread_id: str, user: CurrentUser = Depends(get_current_user)):
     """The LangGraph checkpointer's chat_history for this thread - lets the UI
     restore a conversation after a page refresh / lost session, since the
     checkpoint (Postgres) outlives the browser session. Each entry is just
     {question, answer}; per-turn metadata (paths_used, log_id) isn't stored
     server-side, so restored messages won't have source chips or feedback
-    buttons - only the text."""
+    buttons - only the text.
+
+    Ownership check: a thread with no `threads` row yet (brand-new, first
+    message not sent) is allowed for anyone signed in; one that already
+    belongs to a different user is refused."""
+    owner = threads_store.owner_of(thread_id)
+    if owner is not None and owner != user.id:
+        raise HTTPException(404, "thread not found")
     try:
         state = agent.get_state({"configurable": {"thread_id": thread_id}})
         chat_history = (state.values or {}).get("chat_history", [])
@@ -167,14 +178,14 @@ def history(thread_id: str):
 
 
 @app.get("/threads")
-def list_threads(device_id: str):
-    """Sidebar conversation list for this (anonymous, cookie-less) device."""
-    return {"threads": threads_store.list_for_device(device_id)}
+def list_threads(user: CurrentUser = Depends(get_current_user)):
+    """Sidebar conversation list for the signed-in user."""
+    return {"threads": threads_store.list_for_user(user.id)}
 
 
 @app.post("/chat")
 @limiter.limit(CHAT_RATE_LIMIT)
-def chat(request: Request, body: ChatRequest):
+def chat(request: Request, body: ChatRequest, user: CurrentUser = Depends(get_current_user)):
     spent, limit, over = day_budget.status()
     if over:
         raise HTTPException(
@@ -206,11 +217,11 @@ def chat(request: Request, body: ChatRequest):
     kind = output.get("kind", "answer")           # "crisis" | "off_topic" | "answer"
     paths_used = sorted({r["path"] for r in output["results"]}) if output["results"] else []
     log_id = _log_conversation(
-        thread_id, body.question, output["answer"], paths_used, kind == "crisis",
+        thread_id, user.id, body.question, output["answer"], paths_used, kind == "crisis",
         latency_ms, snap["cost_usd"],
     )
     if kind == "answer":  # skip crisis/off-topic exchanges - nothing worth titling
-        threads_store.touch(body.device_id, thread_id, body.question, output["answer"])
+        threads_store.touch(user.id, thread_id, body.question, output["answer"])
 
     return {
         "answer": output["answer"],
@@ -227,7 +238,7 @@ def _sse(obj):
 
 @app.post("/chat/stream")
 @limiter.limit(CHAT_RATE_LIMIT)
-def chat_stream(request: Request, body: ChatRequest):
+def chat_stream(request: Request, body: ChatRequest, user: CurrentUser = Depends(get_current_user)):
     """Same as /chat but streams the answer as Server-Sent Events. Event types:
       meta   {kind, paths_used?, thread_id}   - once, before any tokens
       token  {text}                           - repeated, append in order
@@ -287,10 +298,10 @@ def chat_stream(request: Request, body: ChatRequest):
         day_budget.record(snap)
         logger.info("chat/stream done: %d ms, $%.5f, day $%.3f/$%.2f",
                     latency_ms, snap["cost_usd"], spent + snap["cost_usd"], limit)
-        log_id = _log_conversation(thread_id, body.question, answer, paths_used,
+        log_id = _log_conversation(thread_id, user.id, body.question, answer, paths_used,
                                    kind == "crisis", latency_ms, snap["cost_usd"])
         if kind == "answer":  # skip crisis/off-topic exchanges - nothing worth titling
-            threads_store.touch(body.device_id, thread_id, body.question, answer)
+            threads_store.touch(user.id, thread_id, body.question, answer)
         yield _sse({"type": "done", "log_id": log_id, "kind": kind,
                     "paths_used": paths_used, "latency_ms": latency_ms})
 
@@ -302,18 +313,20 @@ def chat_stream(request: Request, body: ChatRequest):
 
 
 @app.post("/feedback")
-def feedback(fb: Feedback):
+def feedback(fb: Feedback, user: CurrentUser = Depends(get_current_user)):
     if not DATABASE_URL:
         raise HTTPException(503, "feedback storage unavailable")
     try:
         with psycopg.connect(DATABASE_URL, autocommit=True) as conn:
+            # scoped to the caller's own log rows - a log_id belonging to
+            # someone else just reads as "not found", same as /history.
             n = conn.execute(
                 """UPDATE conversation_log
                    SET feedback      = COALESCE(%(rating)s, feedback),
                        feedback_note = COALESCE(NULLIF(%(note)s, ''), feedback_note),
                        feedback_ts   = now()
-                   WHERE id = %(log_id)s""",
-                {"rating": fb.rating, "note": fb.note, "log_id": fb.log_id},
+                   WHERE id = %(log_id)s AND user_id = %(user_id)s""",
+                {"rating": fb.rating, "note": fb.note, "log_id": fb.log_id, "user_id": user.id},
             ).rowcount
     except Exception:
         logger.exception("feedback write failed")
