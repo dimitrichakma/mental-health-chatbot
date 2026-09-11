@@ -7,7 +7,7 @@ export default function Header() {
         </div>
         <div>
           <h1 className="text-lg font-bold leading-tight sm:text-xl">
-            CBT &amp; Mental Health Chatbot
+            CBT &amp; Mental Health Companion
           </h1>
           <p className="mt-1 text-sm text-white/90">
             Ask about cognitive behavioral therapy, common mental-health

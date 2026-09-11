@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "CBT & Mental Health Chatbot",
+  title: "CBT & Mental Health Companion",
   description:
     "A CBT / mental-health question-answering agent with hybrid graph + vector retrieval.",
 };
